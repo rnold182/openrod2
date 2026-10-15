@@ -25,3 +25,6 @@
 
 __pycache__/
 *.pyc
+
+# Local launcher for the original game in DOSBox
+/run_original.bat
