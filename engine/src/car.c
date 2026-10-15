@@ -124,18 +124,41 @@ int car_garage_x(int w)
     return lim < x ? lim : x;
 }
 
-/* Body picture plus wheels (2a21:8546); body mod patches come later. */
+/* Copy `src` into `dst` at (x, y): opaque (zeros erase, like 2a21:ad92) or as a sprite. */
+static void compose(Image *dst, const Image *src, int x, int y, int opaque)
+{
+    if (!src) return;
+    for (int j = 0; j < src->h; j++)
+        for (int i = 0; i < src->w; i++) {
+            int dx = x + i, dy = y + j;
+            if (dx < 0 || dy < 0 || dx >= dst->w || dy >= dst->h) continue;
+            uint8_t c = src->pixels[j * src->w + i];
+            if (opaque || c) dst->pixels[dy * dst->w + dx] = c;
+        }
+}
+
+/* Body picture with its mods and wheels (2a21:8546). */
 int car_draw(Video *v, Game *g, const Car *car, int model, int x, int bottom)
 {
     const CarModel *m = &g_models[model];
     const Image *body = game_picture(g, m->picture);
     if (!body) return x;
     if (x < 0) x = ((320 - body->w) / 2 + 4) & ~7;
+    static uint8_t buf[320 * 200];
+    Image img = { body->w, body->h, body->flags, buf };
+    memcpy(buf, body->pixels, (size_t)body->w * body->h);
+    if (car) {
+        if ((car->body & BODY_ROOF_CHOPPED) && m->patch[1]) compose(&img, game_picture(g, m->patch[1]), m->geo[4], 0, 1);
+        if ((car->body & BODY_REAR_STRIPPED) && m->patch[3]) compose(&img, game_picture(g, m->patch[3]), 0, m->geo[7], 1);
+        if ((car->body & BODY_FRONT_STRIPPED) && m->patch[4]) compose(&img, game_picture(g, m->patch[4]), m->geo[8], m->geo[9], 1);
+        if (car->intake.part >= 0 && g_parts[car->intake.part].grade == 8 && model != 21 && m->patch[2])
+            compose(&img, game_picture(g, m->patch[2]), m->geo[5], m->geo[6], 0);     /* supercharger blower */
+    }
     int top = bottom - body->h + 1;
-    video_blit(v, body, x, top);
+    video_blit(v, &img, x, top);
     int grade = car && car->tires.part >= 0 ? g_parts[car->tires.part].grade : ((m->spec1 & 0x30) >> 4);
     const Image *wheel = game_picture(g, tire_picture(grade, 0));
-    if (wheel) {
+    if (wheel && (!car || car->tires.part >= 0)) {
         int wy = top + body->h - wheel->h;
         video_blit(v, wheel, x + m->geo[0], wy);
         video_blit(v, wheel, x + m->geo[1], wy);

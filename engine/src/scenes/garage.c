@@ -1,4 +1,5 @@
 /* The garage, the game's hub screen (1001:6912, dialog 0). */
+#include "../assets/exe.h"
 #include "../car.h"
 #include "../data.h"
 #include "../game.h"
@@ -13,11 +14,16 @@ enum {
 };
 
 /* Modal dialogs shown on top of the garage. */
-enum { MODAL_NONE, MODAL_QUIT_MENU, MODAL_EXIT_DOS };
+enum { MODAL_NONE, MODAL_QUIT_MENU, MODAL_EXIT_DOS, MODAL_PAINT, MODAL_BODY };
 
 static Dialog dlg, modal;
 static int modal_kind;
 static PartList tires;          /* "Change tires" (1001:71f6) is a parts list over the garage */
+static int paint_colour;        /* colour shown while choosing a paint job (1001:6d5e) */
+static int body_flag, body_cost; /* roof / bumper job being offered (1001:6edc) */
+static long body_time;
+
+static void offer_body_job(Game *g, int id);
 
 static void open_modal(int kind, int dialog)
 {
@@ -80,6 +86,15 @@ static void choose(Game *g, int i)
     case G_TIRES:
         if (!partlist_open(&tires, &g->player, PT_TIRES, NULL)) game_message(g, 30);
         break;
+    case G_PAINT:
+        open_modal(MODAL_PAINT, 13);
+        paint_colour = player_car(&g->player)->colour;
+        break;
+    case G_ROOF:
+    case G_REAR_BUMPER:
+    case G_FRONT_BUMPER:
+        offer_body_job(g, id);
+        break;
     case G_QUIT:
         open_modal(MODAL_QUIT_MENU, 1);
         break;
@@ -92,10 +107,60 @@ static void choose(Game *g, int i)
     }
 }
 
+/* 1001:6edc: chop/rebuild the roof ($70) or strip/restore a bumper ($15). */
+static void offer_body_job(Game *g, int id)
+{
+    Car *c = player_car(&g->player);
+    const CarModel *m = &g_models[c->model];
+    uint16_t text;
+    if (id == G_ROOF) {
+        if (!m->patch[1]) { game_message(g, 31); return; }         /* "Ya can't chop this roof, dummy!" */
+        body_flag = BODY_ROOF_CHOPPED;
+        text = (c->body & body_flag) ? 0x4e04 : 0x4e02;            /* Rebuild roof / Chop roof - $70 */
+        body_cost = 70;
+        body_time = 0x2220;
+    } else {
+        int rear = id == G_REAR_BUMPER;
+        if (!m->patch[rear ? 3 : 4]) { game_message(g, 32); return; }
+        body_flag = rear ? BODY_REAR_STRIPPED : BODY_FRONT_STRIPPED;
+        text = (c->body & body_flag) ? 0x4e08 : 0x4e06;            /* Restore / Strip bumper - $15 */
+        body_cost = 15;
+        body_time = 0x888;
+    }
+    open_modal(MODAL_BODY, 15);
+    dialog_set_text(&modal, 0, exe_ds_str(exe_ds_u16(text)));
+}
+
+/* 2a21:1e50: pay, or show `msg` if the bankroll is too small. */
+static int pay(Game *g, long amount, int msg)
+{
+    if (g->player.money < amount) { game_message(g, msg); return 0; }
+    g->player.money -= amount;
+    return 1;
+}
+
 static void choose_modal(Game *g, int i)
 {
     if (i < 0) return;
     int id = modal.w[i].id;
+    Car *car = player_car(&g->player);
+    if (modal_kind == MODAL_PAINT) {
+        if (id == 1) paint_colour = paint_colour > 0 ? paint_colour - 1 : 5;        /* Previous color */
+        else if (id == 2) paint_colour = paint_colour < 5 ? paint_colour + 1 : 0;   /* Next color */
+        else if (id == 3) {                                                          /* Go ahead */
+            modal_kind = MODAL_NONE;
+            if (pay(g, 20, 25)) { car->colour = (uint8_t)paint_colour; g->player.time_actions += 0x888; }
+        } else if (id == -23) modal_kind = MODAL_NONE;
+        return;
+    }
+    if (modal_kind == MODAL_BODY) {
+        modal_kind = MODAL_NONE;
+        if (id == -20 && pay(g, body_cost, 33)) {
+            car->body ^= (uint16_t)body_flag;
+            g->player.time_actions += body_time;
+        }
+        return;
+    }
     if (modal_kind == MODAL_QUIT_MENU) {
         if (id == -20) open_modal(MODAL_EXIT_DOS, 35);                  /* Quit */
         else if (id == -1) game_set_scene(g, &scene_license);           /* New Game */
@@ -169,6 +234,7 @@ void garage_draw_background(Game *g)
 static void update(Game *g)
 {
     garage_draw_background(g);
+    if (modal_kind == MODAL_PAINT) g->video.palette[12] = colour_paint_reg(paint_colour);   /* the paint gun shows it */
     game_draw_status_bar(g, NULL);
     dialog_draw(&g->video, &dlg);
     if (modal_kind) dialog_draw(&g->video, &modal);

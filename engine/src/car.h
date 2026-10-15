@@ -27,9 +27,9 @@ typedef struct {
     uint16_t body;              /* body mods (car+0x26): roof chopped, bumpers stripped */
 } Car;
 
-#define BODY_ROOF_CHOPPED  0x2000
-#define BODY_FRONT_STRIPPED 0x4000
-#define BODY_REAR_STRIPPED 0x8000
+#define BODY_ROOF_CHOPPED   0x2000   /* car+0x27 bit 0x20 */
+#define BODY_REAR_STRIPPED  0x4000   /* car+0x27 bit 0x40 */
+#define BODY_FRONT_STRIPPED 0x8000   /* car+0x27 bit 0x80 */
 
 #define MAX_CARS  16
 #define MAX_PARTS 181
