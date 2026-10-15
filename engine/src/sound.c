@@ -169,3 +169,18 @@ void sound_toggle_music(void)
     }
     SDL_UnlockMutex(S.lock);
 }
+
+#define LOCKED(stmt) do { if (!S.lock) return; SDL_LockMutex(S.lock); stmt; SDL_UnlockMutex(S.lock); } while (0)
+
+void sound_voice_timbre(int voice, const char *timbre, int volume)
+{
+    int t = adlib_bank_find(&S.bank, timbre);
+    if (t < 0) return;
+    LOCKED(adlib_set_volume(&S.adlib, voice, volume); adlib_set_timbre(&S.adlib, voice, S.bank.timbres[t].p));
+}
+
+void sound_voice_volume(int voice, int volume) { LOCKED(adlib_set_volume(&S.adlib, voice, volume)); }
+void sound_voice_bend(int voice, int bend) { LOCKED(adlib_set_pitch_bend(&S.adlib, voice, bend)); }
+void sound_voice_note_on(int voice, int note) { LOCKED(adlib_note_on(&S.adlib, voice, note)); }
+void sound_voice_note_off(int voice) { LOCKED(adlib_note_off(&S.adlib, voice)); }
+void sound_pitch_range(int semitones) { LOCKED(adlib_set_pitch_range(&S.adlib, semitones)); }

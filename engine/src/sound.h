@@ -16,6 +16,14 @@ void sound_shutdown(void);
 void sound_play_playlist(const int *list);
 void sound_stop(void);
 void sound_toggle_music(void);         /* 'M' key in the original */
-void sound_record(const char *wav_path); /* testing: also write all generated audio to a WAV */
+void sound_record(const char *wav_path);
+
+/* Sound effects on the voices the songs leave free (3..5), as SR.EXE drives them through ADLIB.C. */
+void sound_voice_timbre(int voice, const char *timbre, int volume);   /* 2c57:27e5 */
+void sound_voice_volume(int voice, int volume);
+void sound_voice_bend(int voice, int bend);                           /* 0..0x3fff */
+void sound_voice_note_on(int voice, int note);
+void sound_voice_note_off(int voice);
+void sound_pitch_range(int semitones); /* testing: also write all generated audio to a WAV */
 
 #endif

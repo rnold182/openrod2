@@ -7,6 +7,7 @@
 #include "../car.h"
 #include "../data.h"
 #include "../game.h"
+#include "../sound.h"
 #include "../ui/font.h"
 
 #define BAY_FRAME   1054
@@ -19,7 +20,10 @@
 static const int layer_of_bolt[7] = { -1, 0, 1, 1, 2, 3, 4 };
 static const int part_type_of_layer[5] = { PT_ENGINE, PT_INTAKE, PT_CARB, PT_CARB, PT_CARB };  /* DS:4ea8 */
 
-static Dialog dlg, spares;
+static Dialog dlg, spares, tune;
+static int tuning;              /* timing-light screen (1001:7aec, dialog 30) */
+static int tune_frame;
+static Uint64 tune_last;
 static int bolt_mode[7];        /* 0 out, 1 tightening, 2 loosening (aiStack in 80a8) */
 static int listing;             /* spares list open */
 static int spare_idx[MAX_PARTS], spare_count, spare_sel, spare_top;
@@ -153,6 +157,7 @@ static void enter(Game *g)
     Car *c = player_car(&g->player);
     dialog_load(&dlg, 14);
     listing = 0;
+    tuning = 0;
     if (c) {
         sync_bolt_modes(c);
         place_hotspots(c);
@@ -267,6 +272,76 @@ static void install(Game *g, Car *c, int spare)
     listing = 0;
 }
 
+/* Engine idle sound on voices 3 and 4 ("motor"), pitch following the timing (2c57:0b2c..0c5c). */
+static void tune_sound(const Car *c)
+{
+    int t = c->timing, vol = t == 0 ? 0x4a : 0x52;
+    sound_voice_bend(3, ((t + 16) * 2) << 8);
+    sound_voice_volume(3, vol);
+    sound_voice_bend(4, (t * 3 + 0x20) << 8);
+    sound_voice_volume(4, vol);
+}
+
+static void tune_open(Car *c)
+{
+    dialog_load(&tune, 30);
+    tuning = 1;
+    tune_frame = 0;
+    tune_last = SDL_GetTicks();
+    for (int v = 3; v <= 4; v++) {
+        sound_voice_timbre(v, "motor", 0x40);
+        sound_pitch_range(6);
+        sound_voice_bend(v, 0);
+        sound_voice_note_off(v);
+        sound_voice_note_on(v, 0x18);
+    }
+    tune_sound(c);
+}
+
+static void tune_close(Game *g)
+{
+    sound_voice_volume(3, 0);
+    sound_voice_note_off(3);
+    sound_voice_note_off(4);
+    sound_voice_bend(4, 0x2000);
+    sound_voice_timbre(4, "paint", 0x6a);
+    g->player.time_actions += 0x444;
+    tuning = 0;
+}
+
+static void choose_tune(Game *g, int i)
+{
+    Car *c = player_car(&g->player);
+    if (i < 0 || !c) return;
+    int id = tune.w[i].id;
+    if (id == -10 && c->timing < 3) c->timing++;            /* Advance */
+    else if (id == -7 && c->timing > -5) c->timing--;       /* Retard */
+    else if (id == -1) { tune_close(g); return; }
+    tune_sound(c);
+}
+
+static void draw_tune(Game *g, Car *c)
+{
+    Video *v = &g->video;
+    const Image *pulley = game_picture(g, 0x420), *spin = game_picture(g, 0x424), *belt = game_picture(g, 0x434);
+    video_fill(v, 0x1c, 4, 0xc0, 0xb5, 0);
+    video_fill(v, 0xf2, 0x1f, 0x27, 9, 5);              /* cover TUNE and PARTS: only DONE stays */
+    video_fill(v, 0xf2, 0x96, 0x27, 9, 5);
+    video_blit(v, pulley, 0x40, 0x21);
+    video_fill(v, 0x96, 0x71, 3, 1, 0x0e);
+    if (game_ticks_since(tune_last) >= 4) { tune_frame = (tune_frame + 1) % 3; tune_last = SDL_GetTicks(); }
+    /* Pulley: frame 0 is the still picture, 1 and 2 come from picture 1060. */
+    if (tune_frame > 0 && spin) video_blit_part(v, spin, (tune_frame - 1) * 32, 0, 32, 0x2d, 0x48, 99);
+    /* Belt: frames run right to left over picture 1076 (the third is the still picture). */
+    if (tune_frame < 2 && belt) video_blit_part(v, belt, tune_frame == 0 ? 16 : 0, 0, 16, 0x21, 0x60, 0x3c);
+    /* Timing mark (table DS:4f1c, 5 lines per setting). */
+    for (int k = 0; k < 5; k++) {
+        const int8_t *seg = (const int8_t *)exe_ds((uint16_t)(0x4f1c + 2 * (c->timing * 5 + k)), 2);
+        if (!seg || seg[0] < 0) continue;
+        video_fill(v, 0x90 + seg[0], (c->timing + 0x25) * 3 + k, seg[1] - seg[0] + 1, 1, 0x0b);
+    }
+}
+
 static void choose(Game *g, int i)
 {
     Car *c = player_car(&g->player);
@@ -280,7 +355,7 @@ static void choose(Game *g, int i)
     } else if (id == -2) open_spares(g, c);
     else if (id == -3) {
         if (!car_runnable(c, 0)) game_message(g, 26);                 /* "Can't tune that mess, klutz!" */
-        else SDL_Log("hood: car runnable; timing screen not rebuilt yet");
+        else tune_open(c);
     } else if (id == -1) game_set_scene(g, &scene_garage);
     place_hotspots(c);          /* bolt modes persist while the hood is open (aiStack in 80a8) */
 }
@@ -303,21 +378,24 @@ static void choose_spare(Game *g, int i)
 static void key(Game *g, SDL_Scancode sc, SDL_Keycode k)
 {
     (void)k;
-    if (listing) choose_spare(g, dialog_key(&spares, sc));
+    if (tuning) choose_tune(g, dialog_key(&tune, sc));
+    else if (listing) choose_spare(g, dialog_key(&spares, sc));
     else choose(g, dialog_key(&dlg, sc));
 }
 
 static void click(Game *g, int x, int y)
 {
     if (SDL_getenv("SR2_DEBUG")) SDL_Log("hood click %d,%d -> widget %d (listing %d)", x, y, dialog_click(&dlg, x, y), listing);
-    if (listing) choose_spare(g, dialog_click(&spares, x, y));
+    if (tuning) choose_tune(g, dialog_click(&tune, x, y));
+    else if (listing) choose_spare(g, dialog_click(&spares, x, y));
     else choose(g, dialog_click(&dlg, x, y));
 }
 
 static void mouse_move(Game *g, int x, int y)
 {
     (void)g;
-    if (listing) dialog_mouse_move(&spares, x, y);
+    if (tuning) dialog_mouse_move(&tune, x, y);
+    else if (listing) dialog_mouse_move(&spares, x, y);
     else dialog_mouse_move(&dlg, x, y);
 }
 
@@ -359,6 +437,13 @@ static void update(Game *g)
         }
     }
     game_draw_picture(g, BAY_PANEL, 0xe0, 0);
+    if (tuning && c) {
+        draw_tune(g, c);
+        const Widget *h = tune.hover >= 0 ? &tune.w[tune.hover] : NULL;
+        game_draw_status_bar(g, h ? h->text : NULL);
+        dialog_draw(v, &tune);
+        return;
+    }
     const Dialog *active = listing ? &spares : &dlg;
     game_draw_status_bar(g, active->hover >= 0 && active->w[active->hover].type == W_HOTSPOT ? active->w[active->hover].text : NULL);
     dialog_draw(v, &dlg);
