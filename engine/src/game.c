@@ -1,3 +1,4 @@
+#include <string.h>
 #include "game.h"
 
 #include "assets/exe.h"
@@ -35,19 +36,43 @@ void game_set_paint(Game *g, int colour)
 
 double game_ticks_since(Uint64 ms) { return (SDL_GetTicks() - ms) * TICK_HZ / 1000.0; }
 
-void game_message(Game *g, int n)
+static void show(Game *g, int n, const char *line1)
 {
     g->msg = n;
     g->msg_start = SDL_GetTicks();
-    g->msg_line1[0] = 0;
+    SDL_strlcpy(g->msg_line1, line1, sizeof g->msg_line1);
     g->msg_sticky = 0;
 }
 
-void game_message_clear(Game *g) { g->msg = 0; g->msg_sticky = 0; }
+void game_message(Game *g, int n)
+{
+    if (g->msg && !g->msg_sticky) {             /* one is up: show this one after it */
+        if (g->msg_queued < 4) {
+            g->msg_queue[g->msg_queued] = n;
+            g->msg_queue_line1[g->msg_queued][0] = 0;
+            g->msg_queued++;
+        }
+        return;
+    }
+    show(g, n, "");
+}
+
+void game_message_dismiss(Game *g)
+{
+    g->msg = 0;
+    g->msg_sticky = 0;
+    if (!g->msg_queued) return;
+    show(g, g->msg_queue[0], g->msg_queue_line1[0]);
+    g->msg_queued--;
+    memmove(&g->msg_queue[0], &g->msg_queue[1], sizeof g->msg_queue[0] * (size_t)g->msg_queued);
+    memmove(&g->msg_queue_line1[0], &g->msg_queue_line1[1], sizeof g->msg_queue_line1[0] * (size_t)g->msg_queued);
+}
+
+void game_message_clear(Game *g) { g->msg = 0; g->msg_sticky = 0; g->msg_queued = 0; }
 
 void game_message_amount(Game *g, int n, long amount, int sticky)
 {
-    game_message(g, n);
+    show(g, n, "");
     g->msg_sticky = sticky;
     const char *s = exe_ds_str(exe_ds_u16((uint16_t)(MSG_TABLE + n * 6 + 2)));
     const char *dollar = SDL_strchr(s, '$');
@@ -59,7 +84,7 @@ void game_message_amount(Game *g, int n, long amount, int sticky)
 
 void game_message_short(Game *g, long amount)
 {
-    game_message(g, 1);
+    show(g, 1, "");
     const char *s = exe_ds_str(exe_ds_u16(MSG_TABLE + 1 * 6 + 2));
     const char *dollar = SDL_strchr(s, '$');
     if (!dollar) return;
@@ -72,8 +97,8 @@ void game_draw_message(Game *g)
 {
     if (!g->msg) return;
     if (!g->msg_sticky && game_ticks_since(g->msg_start) >= (int16_t)exe_ds_u16(MSG_TIMEOUT)) {
-        g->msg = 0;
-        return;
+        game_message_dismiss(g);
+        if (!g->msg) return;
     }
     int n = g->msg < 0 ? -g->msg : g->msg;
     int layout = exe_ds_u16((uint16_t)(MSG_TABLE + n * 6));

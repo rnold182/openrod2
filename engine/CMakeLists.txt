@@ -32,6 +32,7 @@ add_executable(streetrod2 WIN32
     src/scenes/hood.c
     src/scenes/trans.c
     src/scenes/under.c
+    src/scenes/deals.c
     src/ui/partlist.c
     src/ui/listbox.c
 )

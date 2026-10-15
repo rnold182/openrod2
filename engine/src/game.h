@@ -42,6 +42,9 @@ struct Game {
     Uint64       msg_start;
     char         msg_line1[64]; /* replaces line 1 when set (the original sprintf'd into the table) */
     int          msg_sticky;    /* stays up (no timeout, input goes to the dialog below) */
+    int          msg_queue[4];  /* shown one after another, like consecutive 1001:3db4 calls */
+    char         msg_queue_line1[4][64];
+    int          msg_queued;
 
     const char  *shot_path;
     Uint64       shot_at;
@@ -70,6 +73,7 @@ void game_message_short(Game *g, long amount);  /* message 1: "No go, hot shot. 
  * 14 "How about $X ?"); sticky messages stay up while a dialog below takes input. */
 void game_message_amount(Game *g, int n, long amount, int sticky);
 void game_message_clear(Game *g);
+void game_message_dismiss(Game *g);        /* key/click/timeout: next queued message, if any */
 
 /* The bottom status bar (2a21:1c5a / 1e86 / 1df4): "Bankroll: $..." at y 190, plus an optional
  * centred text in the space to its right. */

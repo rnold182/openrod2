@@ -5,6 +5,7 @@
 #include "../game.h"
 #include "../sound.h"
 #include "../ui/partlist.h"
+#include "deals.h"
 
 /* Hotspot ids from dialog 0. */
 enum {
@@ -94,6 +95,12 @@ static void choose(Game *g, int i)
     case G_REAR_BUMPER:
     case G_FRONT_BUMPER:
         offer_body_job(g, id);
+        break;
+    case G_SELL_PARTS:
+        deals_sell_parts(g);
+        break;
+    case G_CARS:
+        deals_cars(g);
         break;
     case G_QUIT:
         open_modal(MODAL_QUIT_MENU, 1);
@@ -189,7 +196,8 @@ static void tires_picked(Game *g, int r)
 static void key(Game *g, SDL_Scancode sc, SDL_Keycode k)
 {
     (void)k;
-    if (tires.active) tires_picked(g, partlist_key(&tires, sc));
+    if (deals_active()) deals_key(g, sc, k);
+    else if (tires.active) tires_picked(g, partlist_key(&tires, sc));
     else if (modal_kind) choose_modal(g, dialog_key(&modal, sc));
     else choose(g, dialog_key(&dlg, sc));
 }
@@ -197,14 +205,16 @@ static void key(Game *g, SDL_Scancode sc, SDL_Keycode k)
 static void mouse_move(Game *g, int x, int y)
 {
     (void)g;
-    if (tires.active) partlist_mouse_move(&tires, x, y);
+    if (deals_active()) deals_mouse_move(g, x, y);
+    else if (tires.active) partlist_mouse_move(&tires, x, y);
     else if (modal_kind) dialog_mouse_move(&modal, x, y);
     else dialog_mouse_move(&dlg, x, y);
 }
 
 static void click(Game *g, int x, int y)
 {
-    if (tires.active) tires_picked(g, partlist_click(&tires, x, y));
+    if (deals_active()) deals_click(g, x, y);
+    else if (tires.active) tires_picked(g, partlist_click(&tires, x, y));
     else if (modal_kind) choose_modal(g, dialog_click(&modal, x, y));
     else choose(g, dialog_click(&dlg, x, y));
 }
@@ -235,10 +245,13 @@ static void update(Game *g)
 {
     garage_draw_background(g);
     if (modal_kind == MODAL_PAINT) g->video.palette[12] = colour_paint_reg(paint_colour);   /* the paint gun shows it */
-    game_draw_status_bar(g, NULL);
+    game_draw_status_bar(g, deals_active() ? deals_hover_text() : NULL);
     dialog_draw(&g->video, &dlg);
     if (modal_kind) dialog_draw(&g->video, &modal);
     if (tires.active) partlist_draw(&g->video, &tires);
+    deals_draw(g);
 }
 
-const Scene scene_garage = { enter, key, NULL, mouse_move, click, update };
+static void text(Game *g, const char *s) { deals_text(g, s); }
+
+const Scene scene_garage = { enter, key, text, mouse_move, click, update };

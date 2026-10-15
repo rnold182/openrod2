@@ -83,3 +83,6 @@
 - Newspaper paging: next page starts at the first ad not fully shown (original repeated one entry).
 - Hover highlight (`ui_highlight`, on by default) and its colour (`ui_highlight_colour`, EGA 0..15,
   default 14 yellow) — both to be exposed in the options menu.
+
+## Tools
+- Python RE tools need Pillow, numpy and capstone (installed for C:\Program Files\Python313).
