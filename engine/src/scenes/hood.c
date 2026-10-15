@@ -9,6 +9,7 @@
 #include "../game.h"
 #include "../sound.h"
 #include "../ui/font.h"
+#include "../ui/partlist.h"
 
 #define BAY_FRAME   1054
 #define BAY_PANEL   1147
@@ -20,14 +21,12 @@
 static const int layer_of_bolt[7] = { -1, 0, 1, 1, 2, 3, 4 };
 static const int part_type_of_layer[5] = { PT_ENGINE, PT_INTAKE, PT_CARB, PT_CARB, PT_CARB };  /* DS:4ea8 */
 
-static Dialog dlg, spares, tune;
+static Dialog dlg, tune;
+static PartList spares;
 static int tuning;              /* timing-light screen (1001:7aec, dialog 30) */
 static int tune_frame;
 static Uint64 tune_last;
 static int bolt_mode[7];        /* 0 out, 1 tightening, 2 loosening (aiStack in 80a8) */
-static int listing;             /* spares list open */
-static int spare_idx[MAX_PARTS], spare_count, spare_sel, spare_top;
-static char spare_text[MAX_PARTS][64];
 
 static int16_t ds16(uint16_t off) { return (int16_t)exe_ds_u16(off); }
 
@@ -146,17 +145,14 @@ static void log_hotspots(void)
 
 static void sync_bolt_modes(Car *c)
 {
-    for (int b = 1; b <= 6; b++) {
-        int s = c->tune[1 + b];
-        bolt_mode[b] = s == 0 ? 0 : s == 1 ? 1 : 2;
-    }
+    for (int b = 1; b <= 6; b++) bolt_mode[b] = bolt_mode_of(c->tune[1 + b]);
 }
 
 static void enter(Game *g)
 {
     Car *c = player_car(&g->player);
     dialog_load(&dlg, 14);
-    listing = 0;
+    spares.active = 0;
     tuning = 0;
     if (c) {
         sync_bolt_modes(c);
@@ -199,45 +195,15 @@ static void click_bolt(Game *g, Car *c, int b)
 {
     if (layer_part(c, layer_of_bolt[b])->part < 0) return;
     g->player.time_actions += 0x36;
-    uint8_t *state = &c->tune[1 + b];
-    if (bolt_mode[b] == 2) {
-        if (--*state > 1) return;
-        *state = 0;
-        bolt_mode[b] = 0;
-        auto_remove(g, c, b);
-    } else if (bolt_mode[b] == 1) {
-        if (*state == 3) bolt_mode[b] = 2;
-        else ++*state;
-    } else {
-        *state = 1;
-        bolt_mode[b] = 1;
-    }
+    if (bolt_turn(&c->tune[1 + b], &bolt_mode[b])) auto_remove(g, c, b);
 }
 
 static void open_spares(Game *g, Car *c)
 {
-    Player *p = &g->player;
     int layer = next_layer(c);
     int type = part_type_of_layer[layer < 5 ? layer : 4];
-    spare_count = 0;
-    for (int i = 0; i < p->part_count; i++) {
-        const PartInst *s = &p->parts[i];
-        if (g_parts[s->part].type != type) continue;
-        char wear[16];
-        if (s->wear == -128) SDL_strlcpy(wear, "(`new`)", sizeof wear);
-        else SDL_snprintf(wear, sizeof wear, "(%d%% worn)", s->wear / 100);
-        SDL_snprintf(spare_text[spare_count], 64, "%s %s", g_parts[s->part].ad, wear);
-        spare_idx[spare_count++] = i;
-    }
-    if (SDL_getenv("SR2_DEBUG")) SDL_Log("spares: layer %d type %d -> %d of %d parts", layer, type, spare_count, p->part_count);
-    if (!spare_count) {
+    if (!partlist_open(&spares, &g->player, type, NULL))
         game_message(g, type == PT_ENGINE ? 27 : type == PT_INTAKE ? 28 : 29);   /* no spare engine/manifold/carb */
-        return;
-    }
-    dialog_load(&spares, 7);
-    spare_sel = 0;
-    spare_top = 0;
-    listing = 1;
 }
 
 /* Install the chosen spare in the next empty layer (80a8, Parts branch). */
@@ -269,7 +235,6 @@ static void install(Game *g, Car *c, int spare)
     for (int b = 1; b <= 6; b++)                                     /* its bolts go in loose */
         if (layer_of_bolt[b] == layer) { c->tune[1 + b] = 1; bolt_mode[b] = 1; }
     c->timing = (int8_t)(SDL_rand(9) - 5);
-    listing = 0;
 }
 
 /* Engine idle sound on voices 3 and 4 ("motor"), pitch following the timing (2c57:0b2c..0c5c). */
@@ -360,34 +325,25 @@ static void choose(Game *g, int i)
     place_hotspots(c);          /* bolt modes persist while the hood is open (aiStack in 80a8) */
 }
 
-#define SPARE_ROWS 10
-
-static void choose_spare(Game *g, int i)
+static void picked(Game *g, int r)
 {
-    if (i < 0) return;
-    int id = spares.w[i].id;
-    if (spares.w[i].type == W_ITEM && id >= 1 && spare_top + id - 1 < spare_count) spare_sel = spare_top + id - 1;
-    else if (id == -3) { Car *c = player_car(&g->player); if (c) install(g, c, spare_idx[spare_sel]); place_hotspots(c); }
-    else if (id == -4) listing = 0;
-    else if (id == -7 && spare_top + SPARE_ROWS < spare_count) spare_top++;                       /* scroll down */
-    else if (id == -10 && spare_top > 0) spare_top--;                                             /* scroll up */
-    else if (id == -9) { spare_top += SPARE_ROWS; if (spare_top > spare_count - 1) spare_top = spare_count - 1; }
-    else if (id == -8) { spare_top -= SPARE_ROWS; if (spare_top < 0) spare_top = 0; }
+    Car *c = player_car(&g->player);
+    if (r >= 0 && c) { install(g, c, r); place_hotspots(c); }
 }
 
 static void key(Game *g, SDL_Scancode sc, SDL_Keycode k)
 {
     (void)k;
     if (tuning) choose_tune(g, dialog_key(&tune, sc));
-    else if (listing) choose_spare(g, dialog_key(&spares, sc));
+    else if (spares.active) picked(g, partlist_key(&spares, sc));
     else choose(g, dialog_key(&dlg, sc));
 }
 
 static void click(Game *g, int x, int y)
 {
-    if (SDL_getenv("SR2_DEBUG")) SDL_Log("hood click %d,%d -> widget %d (listing %d)", x, y, dialog_click(&dlg, x, y), listing);
+    if (SDL_getenv("SR2_DEBUG")) SDL_Log("hood click %d,%d -> widget %d (list %d)", x, y, dialog_click(&dlg, x, y), spares.active);
     if (tuning) choose_tune(g, dialog_click(&tune, x, y));
-    else if (listing) choose_spare(g, dialog_click(&spares, x, y));
+    else if (spares.active) picked(g, partlist_click(&spares, x, y));
     else choose(g, dialog_click(&dlg, x, y));
 }
 
@@ -395,7 +351,7 @@ static void mouse_move(Game *g, int x, int y)
 {
     (void)g;
     if (tuning) dialog_mouse_move(&tune, x, y);
-    else if (listing) dialog_mouse_move(&spares, x, y);
+    else if (spares.active) partlist_mouse_move(&spares, x, y);
     else dialog_mouse_move(&dlg, x, y);
 }
 
@@ -444,21 +400,11 @@ static void update(Game *g)
         dialog_draw(v, &tune);
         return;
     }
-    const Dialog *active = listing ? &spares : &dlg;
-    game_draw_status_bar(g, active->hover >= 0 && active->w[active->hover].type == W_HOTSPOT ? active->w[active->hover].text : NULL);
+    const char *hover = spares.active ? partlist_hover_text(&spares)
+                      : dlg.hover >= 0 && dlg.w[dlg.hover].type == W_HOTSPOT ? dlg.w[dlg.hover].text : NULL;
+    game_draw_status_bar(g, hover);
     dialog_draw(v, &dlg);
-    if (listing) {
-        for (int i = 0; i < spares.count; i++) {
-            Widget *w = &spares.w[i];
-            if (w->type == W_ITEM && w->id >= 1) {
-                int k = spare_top + w->id - 1;
-                dialog_set_text(&spares, i, k < spare_count ? spare_text[k] : "");
-            } else if (w->type == W_LISTROW) {
-                dialog_set_text(&spares, i, spare_count ? spare_text[spare_sel] : "");
-            }
-        }
-        dialog_draw(v, &spares);
-    }
+    if (spares.active) partlist_draw(v, &spares);
 }
 
 const Scene scene_hood = { enter, key, NULL, mouse_move, click, update };

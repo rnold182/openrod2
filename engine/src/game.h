@@ -48,7 +48,10 @@ struct Game {
     const char  *record_path;
 };
 
-extern const Scene scene_intro, scene_license, scene_garage, scene_newspaper, scene_hood;
+extern const Scene scene_intro, scene_license, scene_garage, scene_newspaper, scene_hood, scene_trans, scene_under;
+
+/* Garage picture with the current car, used as the backdrop by screens that open over it. */
+void garage_draw_background(Game *g);
 
 void game_set_scene(Game *g, const Scene *s);
 const Image *game_picture(Game *g, int id);          /* SR.EXE picture ids: 1.., 1000.., 2000.. */

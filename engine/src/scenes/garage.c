@@ -3,6 +3,7 @@
 #include "../data.h"
 #include "../game.h"
 #include "../sound.h"
+#include "../ui/partlist.h"
 
 /* Hotspot ids from dialog 0. */
 enum {
@@ -16,6 +17,7 @@ enum { MODAL_NONE, MODAL_QUIT_MENU, MODAL_EXIT_DOS };
 
 static Dialog dlg, modal;
 static int modal_kind;
+static PartList tires;          /* "Change tires" (1001:71f6) is a parts list over the garage */
 
 static void open_modal(int kind, int dialog)
 {
@@ -28,6 +30,7 @@ static void enter(Game *g)
     (void)g;
     dialog_load(&dlg, 0);
     modal_kind = MODAL_NONE;
+    tires.active = 0;
 }
 
 /* 1001:67b8: hood, transmission, roof and bumper hotspots follow the car. */
@@ -68,6 +71,15 @@ static void choose(Game *g, int i)
     case G_HOOD:
         game_set_scene(g, &scene_hood);
         break;
+    case G_TRANSMISSION:
+        game_set_scene(g, &scene_trans);
+        break;
+    case G_UNDER_CAR:
+        game_set_scene(g, &scene_under);
+        break;
+    case G_TIRES:
+        if (!partlist_open(&tires, &g->player, PT_TIRES, NULL)) game_message(g, 30);
+        break;
     case G_QUIT:
         open_modal(MODAL_QUIT_MENU, 1);
         break;
@@ -95,27 +107,44 @@ static void choose_modal(Game *g, int i)
     }
 }
 
+/* Fit the chosen set of tires; the old set goes to the spares. */
+static void tires_picked(Game *g, int r)
+{
+    Car *c = player_car(&g->player);
+    if (r < 0 || !c) return;
+    Player *p = &g->player;
+    PartInst t = p->parts[r];
+    player_remove_spare(p, r);
+    if (c->tires.part >= 0) { player_add_spare(p, c->tires); c->price = (int16_t)(c->price - c->tires.value); }
+    c->tires = t;
+    c->price = (int16_t)(c->price + t.value);
+    p->time_actions += 0x444;
+}
+
 static void key(Game *g, SDL_Scancode sc, SDL_Keycode k)
 {
     (void)k;
-    if (modal_kind) choose_modal(g, dialog_key(&modal, sc));
+    if (tires.active) tires_picked(g, partlist_key(&tires, sc));
+    else if (modal_kind) choose_modal(g, dialog_key(&modal, sc));
     else choose(g, dialog_key(&dlg, sc));
 }
 
 static void mouse_move(Game *g, int x, int y)
 {
     (void)g;
-    if (modal_kind) dialog_mouse_move(&modal, x, y);
+    if (tires.active) partlist_mouse_move(&tires, x, y);
+    else if (modal_kind) dialog_mouse_move(&modal, x, y);
     else dialog_mouse_move(&dlg, x, y);
 }
 
 static void click(Game *g, int x, int y)
 {
-    if (modal_kind) choose_modal(g, dialog_click(&modal, x, y));
+    if (tires.active) tires_picked(g, partlist_click(&tires, x, y));
+    else if (modal_kind) choose_modal(g, dialog_click(&modal, x, y));
     else choose(g, dialog_click(&dlg, x, y));
 }
 
-static void update(Game *g)
+void garage_draw_background(Game *g)
 {
     game_set_palette(g, PAL_SCREENS);
     Car *car = player_car(&g->player);
@@ -135,9 +164,15 @@ static void update(Game *g)
         for (int i = 0; i < dlg.count; i++)                   /* 1001:6796 */
             if (dlg.w[i].id >= 9 && dlg.w[i].id <= 13) dlg.w[i].flags &= (uint16_t)~WF_ENABLED;
     }
+}
+
+static void update(Game *g)
+{
+    garage_draw_background(g);
     game_draw_status_bar(g, NULL);
     dialog_draw(&g->video, &dlg);
     if (modal_kind) dialog_draw(&g->video, &modal);
+    if (tires.active) partlist_draw(&g->video, &tires);
 }
 
 const Scene scene_garage = { enter, key, NULL, mouse_move, click, update };

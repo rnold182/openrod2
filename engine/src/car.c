@@ -142,3 +142,23 @@ int car_draw(Video *v, Game *g, const Car *car, int model, int x, int bottom)
     }
     return x;
 }
+
+int bolt_mode_of(int state) { return state == 0 ? 0 : state == 1 ? 1 : 2; }
+
+int bolt_turn(uint8_t *state, int *mode)
+{
+    if (*mode == 2) {
+        if (--*state > 1) return 0;
+        *state = 0;
+        *mode = 0;
+        return 1;
+    }
+    if (*mode == 1) {
+        if (*state == 3) *mode = 2;
+        else ++*state;
+    } else {
+        *state = 1;
+        *mode = 1;
+    }
+    return 0;
+}

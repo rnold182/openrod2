@@ -64,6 +64,12 @@ void player_remove_spare(Player *p, int index);
 /* 1001:7a44: engine, wires, manifold, carbs and their bolts all tight; `street` also needs
  * transmission and tires and the two under-car bolts. */
 int  car_runnable(const Car *c, int street);
+
+/* Bolts (1001:80a8 / 75b8): tightness 0 (out) .. 3; mode 0 out, 1 tightening, 2 loosening.
+ * One click: out -> loose; tightening 1->2->3, then switches to loosening; loosening 3->2->out.
+ * Returns 1 when the bolt has just come out. */
+int  bolt_mode_of(int state);
+int  bolt_turn(uint8_t *state, int *mode);
 Car *player_car(Player *p);
 
 /* Draw a car side view with its bottom edge on `bottom`; returns the x used. x < 0 centres it. */
