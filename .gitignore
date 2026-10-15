@@ -1,0 +1,26 @@
+# Original Street Rod 2 files: needed locally to run, never committed.
+/SR.EXE
+/LIB1
+/LIB1C
+/LIB2
+/LIB2C
+/LIB3
+/LIB3C
+/*.MUS
+/MSR.SND
+/SR2_DATA
+/SR2_END
+/SR2_SHP
+/HOTROD*.SAV
+/hall_dat
+
+# Generated output
+/build/
+/out/
+/capture/
+
+# Downloaded dependency (fetch with tools/get_sdl3.sh)
+/engine/third_party/SDL3/
+
+__pycache__/
+*.pyc
