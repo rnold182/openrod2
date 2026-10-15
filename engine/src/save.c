@@ -4,6 +4,7 @@
 
 #include "data.h"
 #include "game.h"
+#include "rivals.h"
 
 /* File layout, all little-endian, in this order:
  *   0x38   player block (DS:a9d8): name at +0, money (long) at +0x24, list heads at +0x2a current car,
@@ -221,6 +222,11 @@ int save_read(const char *dir, int slot, Player *p)
     SDL_free(data);
     if (r) { SDL_Log("save %s: not a valid saved game", path); return -1; }
     *p = tmp;
+    /* Saves from OpenRod builds before the street have the rivals as SR2_DATA ships them
+     * (no cars picked yet, reputation 0): set them up the way a new game does. */
+    int fresh = 1;
+    for (int r = 0; r < 21; r++) if (rival_model(p, r) || rival_get(p, r, 0xf)) fresh = 0;
+    if (fresh) rivals_new_game(p);
     return 0;
 }
 
