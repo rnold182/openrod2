@@ -113,6 +113,7 @@ static void update(Game *g)
         const Image *body = game_picture(g, g_models[car->model].picture);
         if (body) car_draw(&g->video, g, car, car->model, car_garage_x(body->w), 0x9e);
     }
+    game_draw_status_bar(g, NULL);
     dialog_draw(&g->video, &dlg);
     if (modal_kind) dialog_draw(&g->video, &modal);
 }

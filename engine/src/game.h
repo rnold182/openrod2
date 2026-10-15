@@ -61,6 +61,10 @@ double game_ticks_since(Uint64 ms);
 /* Show message n from SR.EXE's message table in a speech bubble (blocks scene input until dismissed). */
 void game_message(Game *g, int n);
 void game_draw_message(Game *g);
-void game_message_short(Game *g, long amount);  /* message 1: "No go, hot shot. You're $X short." */
+void game_message_short(Game *g, long amount);
+
+/* The bottom status bar (2a21:1c5a / 1e86 / 1df4): "Bankroll: $..." at y 190, plus an optional
+ * centred text in the space to its right. */
+void game_draw_status_bar(Game *g, const char *text);  /* message 1: "No go, hot shot. You're $X short." */
 
 #endif

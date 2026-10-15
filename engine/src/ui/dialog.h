@@ -61,6 +61,7 @@ int  dialog_key(const Dialog *d, SDL_Scancode sc);
 
 /* Modern addition: mark the widget under the mouse (button outline / hotspot corners). */
 extern int ui_highlight;
+extern int ui_highlight_colour;     /* EGA colour 0..15 (default 14, yellow); to be set from the options menu */
 /* Palette register currently showing EGA colour `ega`, or -1. */
 int  ui_find_register(const Video *v, int ega);
 

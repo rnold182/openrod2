@@ -73,3 +73,25 @@ void game_draw_message(Game *g)
         ui_text(&g->video, ((w - font_text_width(s)) >> 1) + x + dx, y + dy + 9 * i, s);
     }
 }
+
+#define STATUS_Y       190
+#define STATUS_SCHEME  11
+#define BANKROLL_LABEL 0x4844   /* DS: pointer to "`Bankroll:`$" */
+
+void game_draw_status_bar(Game *g, const char *text)
+{
+    Video *v = &g->video;
+    const uint8_t *sc = exe_ds((uint16_t)(0x1d06 + STATUS_SCHEME * 5), 5);
+    uint8_t fg = sc ? sc[0] : 15, bg = sc ? sc[1] : 0, fill = sc ? sc[2] : 0;
+    video_fill(v, 0, STATUS_Y, 320, 10, fill);
+    int x = font_draw(v, 0, STATUS_Y + 1, exe_ds_str(exe_ds_u16(BANKROLL_LABEL)), fg, bg);
+    x = (x + 7) & ~7;
+    char money[16];
+    SDL_snprintf(money, sizeof money, "%ld", g->player.money);
+    int end = font_draw(v, x, STATUS_Y + 1, money, fg, bg);
+    if (text && *text) {
+        int room = 320 - end;
+        int tx = ((room - font_text_width(text)) / 2 + end) & ~7;
+        font_draw(v, tx, STATUS_Y + 1, text, fg, bg);
+    }
+}

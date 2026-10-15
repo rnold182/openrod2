@@ -74,3 +74,12 @@
 - `build/streetrod2.exe [datadir]` — finds the original files next to the exe, one level up, or in `datadir`.
 - Test hooks: `--shot out.bmp <ms>` saves the 320x200 frame and exits; `--key-at <ms>` simulates Enter.
 - Keys: Enter/Esc skip intro waits, M toggles music, F11 / Alt+Enter fullscreen; after the intro Esc quits, Enter replays.
+
+## Status bar (2a21:1c5a / 1e86 / 1df4)
+- Bottom 10 rows (y 190..199), scheme 11: "`Bankroll:`$" (DS:4844 → string) at x 0, money from the next
+  8-px boundary; the rest of the bar holds centred status texts (2a21:1cde).
+
+## Rebuild deviations / modern options (planned options menu)
+- Newspaper paging: next page starts at the first ad not fully shown (original repeated one entry).
+- Hover highlight (`ui_highlight`, on by default) and its colour (`ui_highlight_colour`, EGA 0..15,
+  default 14 yellow) — both to be exposed in the options menu.

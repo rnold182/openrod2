@@ -12,6 +12,7 @@
 static struct { uint8_t fg, bg, fill, border, style; } cur = { 15, 0, 0, 15, 1 };
 
 int ui_highlight = 1;
+int ui_highlight_colour = 14;
 
 int ui_find_register(const Video *v, int ega)
 {
@@ -22,8 +23,8 @@ int ui_find_register(const Video *v, int ega)
 
 static int highlight_colour(const Video *v)
 {
-    int r = ui_find_register(v, 14);            /* yellow */
-    return r >= 0 ? r : ui_find_register(v, 15);/* else white */
+    int r = ui_find_register(v, ui_highlight_colour);
+    return r >= 0 ? r : ui_find_register(v, 15);   /* colour not in this screen's palette: white */
 }
 
 static void draw_hover(Video *v, const Dialog *d)

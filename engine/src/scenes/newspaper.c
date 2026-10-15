@@ -171,7 +171,10 @@ static void open_buy(Game *g, int idx)
     long price = e->kind == E_CAR ? e->price : g_parts[e->part].price;
     SDL_snprintf(price_line, sizeof price_line, "You want to buy it for $%-3ld ?", price);
     for (int i = 0, ct = 0; i < buy.count; i++) {
-        if (buy.w[i].id == -25 && e->kind != E_CAR) buy.w[i].flags = 0;   /* "See it" only for cars */
+        if (buy.w[i].id == -25 && e->kind != E_CAR) {     /* "See it" only for cars: 11a2 turns it into */
+            buy.w[i].flags = 0;                          /* a disabled, invisible hotspot */
+            buy.w[i].type = W_HOTSPOT;
+        }
         if (buy.w[i].type == W_CTEXT) dialog_set_text(&buy, i, ct++ == 0 ? name : price_line);
     }
     mode = MODE_BUY;
@@ -326,6 +329,7 @@ static void update(Game *g)
     Car *c = player_car(&g->player);
     if (c) game_set_paint(g, c->colour);
     video_clear(&g->video, 0);
+    game_draw_status_bar(g, NULL);
     if (mode == MODE_FRONT) {
         draw_front(g);
         dialog_draw(&g->video, &front);
