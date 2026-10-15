@@ -17,6 +17,7 @@ typedef struct {
     SDL_Texture  *texture;
     uint8_t       fb[SCREEN_W * SCREEN_H];
     uint8_t       palette[16];      /* palette register -> EGA colour 0..15 */
+    int           clip_bottom;      /* text is not drawn at or below this row */
 } Video;
 
 extern const uint8_t EGA_RGB[16][3];

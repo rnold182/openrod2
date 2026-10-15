@@ -1,4 +1,6 @@
 /* The garage, the game's hub screen (1001:6912, dialog 0). */
+#include "../car.h"
+#include "../data.h"
 #include "../game.h"
 #include "../sound.h"
 
@@ -23,8 +25,7 @@ static void open_modal(int kind, int dialog)
 
 static void enter(Game *g)
 {
-    game_set_palette(g, PAL_SCREENS);
-    g->video.palette[12] = 5;               /* car paint register; no car yet */
+    (void)g;
     dialog_load(&dlg, 0);
     modal_kind = MODAL_NONE;
 }
@@ -40,11 +41,17 @@ static void choose(Game *g, int i)
 {
     if (i < 0) return;
     int id = dlg.w[i].id;
-    if (needs_car(id) && g->player.car < 0) {
+    if (needs_car(id) && g->player.current < 0) {
         game_message(g, 9);                 /* "You've got no car, dummy!" */
         return;
     }
     switch (id) {
+    case G_NEWSPAPER:
+        if (g->player.car_count >= 16) { game_message(g, 34); break; }    /* 1001:3e08 */
+        if (g->player.part_count > 180) { game_message(g, 35); break; }
+        g->player.time_actions += 0x222;
+        game_set_scene(g, &scene_newspaper);
+        break;
     case G_QUIT:
         open_modal(MODAL_QUIT_MENU, 1);
         break;
@@ -94,10 +101,18 @@ static void click(Game *g, int x, int y)
 
 static void update(Game *g)
 {
+    game_set_palette(g, PAL_SCREENS);
+    Car *car = player_car(&g->player);
+    if (car) game_set_paint(g, car->colour);
+    g->video.palette[12] = car ? colour_paint_reg(car->colour) : 5;
     video_clear(&g->video, 0);
     game_draw_picture(g, 1018, 0, 0);
     game_draw_picture(g, 1020, 0x90, 0xa3);
     game_draw_picture(g, 1198, 0x50, 0xac);
+    if (car) {
+        const Image *body = game_picture(g, g_models[car->model].picture);
+        if (body) car_draw(&g->video, g, car, car->model, car_garage_x(body->w), 0x9e);
+    }
     dialog_draw(&g->video, &dlg);
     if (modal_kind) dialog_draw(&g->video, &modal);
 }

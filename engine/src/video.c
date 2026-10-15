@@ -22,6 +22,7 @@ int video_init(Video *v, const char *title)
     if (!v->texture) return -1;
     SDL_SetTextureScaleMode(v->texture, SDL_SCALEMODE_NEAREST);
     for (int i = 0; i < 16; i++) v->palette[i] = (uint8_t)i;
+    v->clip_bottom = SCREEN_H;
     return 0;
 }
 

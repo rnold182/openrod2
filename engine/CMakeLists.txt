@@ -16,6 +16,8 @@ target_link_libraries(sraudio PUBLIC opl3 m)
 add_executable(streetrod2 WIN32
     src/main.c
     src/game.c
+    src/car.c
+    src/data.c
     src/video.c
     src/sound.c
     src/assets/exe.c
@@ -25,6 +27,7 @@ add_executable(streetrod2 WIN32
     src/scenes/intro.c
     src/scenes/license.c
     src/scenes/garage.c
+    src/scenes/newspaper.c
 )
 target_include_directories(streetrod2 PRIVATE src)
 target_link_libraries(streetrod2 PRIVATE sraudio SDL3::SDL3)

@@ -1,6 +1,7 @@
 #include "game.h"
 
 #include "assets/exe.h"
+#include "data.h"
 #include "ui/font.h"
 
 #define MSG_TABLE    0x11ea     /* DS: 6 bytes per message: layout, line 1, line 2 */
@@ -25,12 +26,29 @@ void game_set_palette(Game *g, uint16_t ds_table)
     if (p) video_set_palette(&g->video, p);
 }
 
+void game_set_paint(Game *g, int colour)
+{
+    if (colour < 0) return;
+    g->video.palette[6] = colour_paint_reg(colour);
+    g->video.palette[7] = colour_paint_light(colour);
+}
+
 double game_ticks_since(Uint64 ms) { return (SDL_GetTicks() - ms) * TICK_HZ / 1000.0; }
 
 void game_message(Game *g, int n)
 {
     g->msg = n;
     g->msg_start = SDL_GetTicks();
+    g->msg_line1[0] = 0;
+}
+
+void game_message_short(Game *g, long amount)
+{
+    game_message(g, 1);
+    const char *s = exe_ds_str(exe_ds_u16(MSG_TABLE + 1 * 6 + 2));
+    const char *dollar = SDL_strchr(s, '$');
+    if (!dollar) return;
+    SDL_snprintf(g->msg_line1, sizeof g->msg_line1, "%.*s%ld short.", (int)(dollar - s + 1), s, amount);
 }
 
 static int16_t layout_word(int layout, int k) { return (int16_t)exe_ds_u16((uint16_t)(MSG_LAYOUTS + layout * 18 + k * 2)); }
@@ -51,6 +69,7 @@ void game_draw_message(Game *g)
     ui_set_scheme(MSG_SCHEME);
     for (int i = 0; i < lines && i < 2; i++) {
         const char *s = exe_ds_str(exe_ds_u16((uint16_t)(MSG_TABLE + n * 6 + 2 + 2 * i)));
+        if (i == 0 && g->msg_line1[0]) s = g->msg_line1;
         ui_text(&g->video, ((w - font_text_width(s)) >> 1) + x + dx, y + dy + 9 * i, s);
     }
 }

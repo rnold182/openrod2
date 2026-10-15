@@ -1,0 +1,68 @@
+/* Player-owned cars and parts (structures follow SR.EXE's car record built in 1001:42aa). */
+#ifndef SR_CAR_H
+#define SR_CAR_H
+
+#include <stdint.h>
+
+#include "video.h"
+
+struct Game;
+
+typedef struct {
+    int16_t part;               /* index into g_parts, -1 = none */
+    int16_t value;              /* what it is worth */
+    int16_t wear;               /* condition counter (engines/transmissions/tires wear out) */
+} PartInst;
+
+typedef struct {
+    int      model;
+    int16_t  price;             /* price paid */
+    uint8_t  colour;
+    uint8_t  cls;
+    PartInst engine, trans, intake, carb[3], tires, exhaust, muffler, diff;
+    uint8_t  tune[8];           /* "bolt" settings (car+0x14..0x1b) */
+    uint8_t  unknown22;
+    int8_t   timing;            /* ignition advance/retard, -5..3 */
+    int16_t  fuel;              /* gallons? starts at 40 */
+    uint16_t body;              /* body mods (car+0x26): roof chopped, bumpers stripped */
+} Car;
+
+#define BODY_ROOF_CHOPPED  0x2000
+#define BODY_FRONT_STRIPPED 0x4000
+#define BODY_REAR_STRIPPED 0x8000
+
+#define MAX_CARS  16
+#define MAX_PARTS 181
+
+typedef struct {
+    char     name[16];
+    long     money;
+    Car      cars[MAX_CARS];
+    int      car_count;
+    int      current;           /* index of the car in the garage, -1 = none */
+    PartInst parts[MAX_PARTS];  /* spare parts in the garage */
+    int      part_count;
+    long     time_actions;      /* DS:1f6a: each action advances the clock */
+    double   time_ticks;        /* DS:1f6e-1f72: real time spent playing, in 72.8 Hz ticks */
+
+    /* Classified ads state (DS:9b40..9b88). */
+    int      ads_week;          /* week of the last issue read, -1 = never */
+    uint8_t  ads[26];           /* ad slots of the current issue (0..41), 0x80 = sold, 0xFF = end */
+    uint8_t  ad_cooldown[42];
+    int      ads_available;
+} Player;
+
+void player_new(Player *p, const char *name);
+int  player_day(const Player *p);                 /* 0 = June 16 .. 91 */
+void player_date(const Player *p, int *month, int *day_of_month);   /* month 0 = June */
+
+/* Create a car of `model` as the original does; `used` gives the worn engine/transmission variant. */
+Car *player_add_car(Player *p, int model, int price, int used);
+int  player_add_part(Player *p, int part, int price);
+Car *player_car(Player *p);
+
+/* Draw a car side view with its bottom edge on `bottom`; returns the x used. x < 0 centres it. */
+int  car_draw(Video *v, struct Game *g, const Car *car, int model, int x, int bottom);
+int  car_garage_x(int body_width);
+
+#endif

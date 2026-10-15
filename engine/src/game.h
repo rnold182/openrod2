@@ -5,6 +5,7 @@
 #include <SDL3/SDL.h>
 
 #include "assets/lib.h"
+#include "car.h"
 #include "ui/dialog.h"
 #include "video.h"
 
@@ -27,12 +28,6 @@ typedef struct {
     void (*update)(Game *g);
 } Scene;
 
-typedef struct {
-    char name[16];
-    long money;
-    int  car;                   /* index of current car, -1 = none */
-} Player;
-
 struct Game {
     Video        video;
     Lib          lib[3];
@@ -45,6 +40,7 @@ struct Game {
     /* Speech-bubble message overlay (1001:3db4). */
     int          msg;           /* message number, 0 = none */
     Uint64       msg_start;
+    char         msg_line1[64]; /* replaces line 1 when set (the original sprintf'd into the table) */
 
     const char  *shot_path;
     Uint64       shot_at;
@@ -52,16 +48,19 @@ struct Game {
     const char  *record_path;
 };
 
-extern const Scene scene_intro, scene_license, scene_garage;
+extern const Scene scene_intro, scene_license, scene_garage, scene_newspaper;
 
 void game_set_scene(Game *g, const Scene *s);
 const Image *game_picture(Game *g, int id);          /* SR.EXE picture ids: 1.., 1000.., 2000.. */
 void game_draw_picture(Game *g, int id, int x, int y);
 void game_set_palette(Game *g, uint16_t ds_table);
+/* Screen palette with a car's paint in registers 6/7 (1001:672c); colour < 0 leaves them as is. */
+void game_set_paint(Game *g, int colour);
 double game_ticks_since(Uint64 ms);
 
 /* Show message n from SR.EXE's message table in a speech bubble (blocks scene input until dismissed). */
 void game_message(Game *g, int n);
 void game_draw_message(Game *g);
+void game_message_short(Game *g, long amount);  /* message 1: "No go, hot shot. You're $X short." */
 
 #endif

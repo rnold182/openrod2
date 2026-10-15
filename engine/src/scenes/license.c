@@ -25,10 +25,7 @@ static void start_game(Game *g)
 {
     size_t n = strlen(name);
     while (n > 0 && name[n - 1] == ' ') name[--n] = 0;     /* 1001:54ba trims trailing spaces */
-    memset(&g->player, 0, sizeof g->player);
-    SDL_strlcpy(g->player.name, name, sizeof g->player.name);
-    g->player.money = 1200;                                 /* 1001:5400: $1200 to start */
-    g->player.car = -1;
+    player_new(&g->player, name);                           /* 1001:5400: $1200 to start */
     SDL_StopTextInput(g->video.window);
     game_set_scene(g, &scene_garage);
 }

@@ -39,7 +39,7 @@ int font_draw(Video *v, int x, int y, const char *s, uint8_t fg, uint8_t bg)
         if (x + w > SCREEN_W) break;            /* the original stops at the right edge */
         for (int row = 0; row < 8; row++) {
             int py = y + row;
-            if (py < 0 || py >= SCREEN_H) continue;
+            if (py < 0 || py >= v->clip_bottom) continue;
             for (int col = 0; col < w; col++) {
                 int px = x + col;
                 if (px < 0) continue;

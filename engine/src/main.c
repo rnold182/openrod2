@@ -5,6 +5,7 @@
 #include <SDL3/SDL_main.h>
 
 #include "assets/exe.h"
+#include "data.h"
 #include "game.h"
 #include "sound.h"
 #include "ui/font.h"
@@ -133,6 +134,7 @@ int main(int argc, char **argv)
     char path[1100];
     snprintf(path, sizeof path, "%s/SR.EXE", g.data_dir);
     if (exe_load(path) || font_init()) return fail("SR.EXE could not be read.");
+    if (data_load(g.data_dir)) return fail("SR2_DATA could not be read.");
     static const char *libs[3] = { "LIB1", "LIB2", "LIB3" };
     for (int i = 0; i < 3; i++) {
         snprintf(path, sizeof path, "%s/%s", g.data_dir, libs[i]);
@@ -149,7 +151,12 @@ int main(int argc, char **argv)
     g.scene = &scene_intro;
     g.scene->enter(&g);
 
+    Uint64 last = SDL_GetTicks();
     while (!g.quit) {
+        Uint64 now_ms = SDL_GetTicks();
+        if (g.scene != &scene_intro && g.scene != &scene_license)   /* the summer clock runs in real time */
+            g.player.time_ticks += (now_ms - last) * TICK_HZ / 1000.0;
+        last = now_ms;
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_EVENT_QUIT) {
@@ -172,7 +179,6 @@ int main(int argc, char **argv)
         if (g.next_scene) {
             g.scene = g.next_scene;
             g.next_scene = NULL;
-            g.msg = 0;
             g.scene->enter(&g);
         }
         if (g.scene->update) g.scene->update(&g);
