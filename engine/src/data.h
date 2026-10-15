@@ -40,7 +40,8 @@ extern const char *g_rival_names[RIVAL_COUNT];
 
 int data_load(const char *data_dir);    /* after exe_load() */
 #define RIVALS_SIZE 396
-const uint8_t *data_rivals_initial(void);  /* SR2_DATA's first block (DS:ab7e): the rivals' state */
+const uint8_t *data_rivals_initial(void);
+const uint8_t *data_race_sprites(void);   /* SR2_DATA -> DS:aa9e: 6 x 7 picture ids per car shape */  /* SR2_DATA's first block (DS:ab7e): the rivals' state */
 
 /* Ad text helpers: the first string of an ad is the item's name. */
 const char *ad_next_string(const char *s);

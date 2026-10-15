@@ -26,6 +26,7 @@ add_executable(streetrod2 WIN32
     src/save.c
     src/rivals.c
     src/scenes/street.c
+    src/scenes/race.c
     src/scenes/files.c
     src/assets/exe.c
     src/assets/lib.c

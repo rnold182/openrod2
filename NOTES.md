@@ -143,6 +143,33 @@
 - Not rebuilt yet: the race (be82 setup, b584 drive, 0dcb segment), cars' engine sound when driving
   in/out, the carhop (2a21:945a, picture 0x458) and rival taunts (9432), police.
 
+## The drag race (9e3c -> be82 -> 8d9e/2a21:77f4 -> b584)
+- Car figures (c294 into DS:a100 for you, c5d8 = c294 of the rival's stock model into DS:a1e4): top speed
+  v = min(130, power*13/10); per gear g: ratio = 570000 / (DS:5242[trans*5+g] * v) (20 if 0), three
+  torque bands {lo, hi, accel, decel}: [0, 5288[eng*2]], [5288, 528a], [528a, 0x1644]; base =
+  526a[eng*5+g] * power / 100; band 0 accel = base / (g ? 5 : 1) (x2, x3 on racing tires, in 1st),
+  +5% no muffler / +3% muffler 1, +5% exhaust 1, -5%/+5% diff 0/2; band 1 = base, band 2 = base/10;
+  decel = base / (5 - g). Gears DS:52de[trans] (3/3/4/4), automatic = trans grade 0, shift rpm 52d8[eng].
+- Your engine runs in the timer interrupt 0001:2620 (Ghidra misses it; disassemble), every 12th tick
+  (72.8 / 4 / 3 = 6 Hz): gas adds band accel to rpm (limiter 0x1644; > 15 - wear/1000 steps on it blows
+  the engine: DS:a1bc |= 5), off gas subtracts decel; rpm > 5000 wears engine + trans; a shift (left
+  button / key) goes up on gas or in band > 0, down otherwise; a power shift above 5000 rpm can drop the
+  transmission ((100 + wear/100) in 3277: a1bc |= 0x11); brake: speed -= speed/16 + 2; speed = rpm / ratio.
+  The interrupt also drives the engine sound: AdLib voice 3 "motor", bend rpm*3 - 0x1194 (2c57:0ba6),
+  volume |rpm-1500|/128 + 0x50, full without a muffler; PC speaker via port 0x42 otherwise.
+- Per frame (18.2 Hz, d908): distance += DS:8016[speed] (1/64 segment), opponent the same; drag strip
+  segments 200 (DS:9ae2) .. 0x17c (DS:a2aa). Opponent (cb98): own engine stepping with shift point
+  (skill - 10) * 200 + shift rpm, but held to your speed + 10 when side by side and to 70/80% of its top
+  speed when far ahead (cb00 sets a speed directly). b1b2 at the line: winner, time = steps*10/6 tenths,
+  avg speed. Start (8ef4): "Get ready !", 0x6e + rand(0x67) ticks, moving = "Ya jumped the light" (0x81).
+- Results (b584): win -> DS:512a[stake] message + money, pink slips = the rival's car (rival leaves the
+  game); loss -> 0x54 / 0x53; blown engine removes engine+manifold+carbs (b46e), dropped trans (b4da);
+  dialog 23 shows the time ("Your winning time ...", "In %d.%d sec you covered only %2d%% ...").
+- Race screen: palette 1dc8, 2013 roof at top, dashboard by model (patch[0] high byte: 0 -> 2011,
+  1 -> 2019, 2 -> 2012) at y 100, gauge centres DS:1c0a/1c10 (tach) and 1c22/1c28 (speedo), gear plate
+  table DS:1cd0 at (0x108, 0x27). Opponent pictures SR2_DATA -> DS:aa9e (patch[0] low byte). The road is
+  the rebuild's own drawing for now (the 0dcb renderer is not ported).
+
 ## Rebuild deviations / modern options (planned options menu)
 - Newspaper paging: next page starts at the first ad not fully shown (original repeated one entry).
 - Hover highlight (`ui_highlight`, on by default) and its colour (`ui_highlight_colour`, EGA 0..15,

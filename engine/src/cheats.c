@@ -6,6 +6,7 @@
 
 #include "data.h"
 #include "options.h"
+#include "scenes/race.h"
 #include "ui/font.h"
 
 #define CONSOLE_SCHEME 1
@@ -93,6 +94,9 @@ void cheats_run(Game *g, const char *line)
         if (r < 0 || r >= RIVAL_COUNT) { say("rival 0..%d (21 = The King)", RIVAL_COUNT - 1); return; }
         street_summon(g, r);
         say("Calling %s", g_rival_names[r]);
+    } else if (!strcmp(cmd, "autodrive")) {           /* testing the race */
+        race_autodrive(strcmp(arg, "off") != 0);
+        say("Autodrive %s", strcmp(arg, "off") ? "on" : "off");
     } else if (!strcmp(cmd, "anim")) {            /* until the options menu exists */
         if (atoi(arg) > 0) {
             opt_anim_speed = SDL_clamp(atoi(arg), 25, 400);

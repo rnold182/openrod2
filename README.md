@@ -30,4 +30,19 @@ It reads the original game's files at runtime, so you need your own copy of the 
 Put the original files (`SR.EXE`, `LIB1`–`LIB3`, `*.MUS`, `MSR.SND`, `SR2_*`) in the repository root
 (or next to the executable), then run `build\streetrod2.exe`.
 
+## Playing
+
+Status: **pre-alpha**. Working: the garage (engine bay, transmission, under the car, tires, paint,
+body work), the newspaper (buying cars and parts), selling, the calendar, saving and loading
+(compatible with the original `HOTROD*.SAV` files), Burger's Bungalow (rivals, challenges, bets) and
+the **drag race**. Not yet: Mulholland Drive and Aqueduct races, the gas station, Grudge Night,
+police, the end of the summer, the options menu.
+
+Drag race controls: hold **Up** (or the right mouse button) for gas, **Space** / **Enter** (or a left
+click) to shift — up while on the gas, down when off it — and **Down** to brake. Don't jump the
+flag, and don't sit on the rev limiter.
+
+Other keys: **F11** or **Alt+Enter** fullscreen, **M** music on/off, **F12** or **`** cheat
+console (`help` lists the commands).
+
 Reverse-engineering notes are in [NOTES.md](NOTES.md).

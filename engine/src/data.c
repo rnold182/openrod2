@@ -20,6 +20,7 @@ enum {
 };
 
 const uint8_t *data_rivals_initial(void) { return sr2_data + B_RIVALS; }
+const uint8_t *data_race_sprites(void) { return sr2_data + B_AA9E; }
 
 static uint16_t rd16(const uint8_t *p) { return (uint16_t)(p[0] | p[1] << 8); }
 

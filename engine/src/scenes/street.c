@@ -10,6 +10,7 @@
 #include "../game.h"
 #include "../rivals.h"
 #include "../ui/listbox.h"
+#include "race.h"
 
 #define BUNGALOW     0x431      /* 1073: the drive-in at night, your door at the bottom */
 #define SIGN         0x47d      /* 1149: the "look for opponent" sign */
@@ -105,14 +106,15 @@ static void end_negotiation(void) { negotiating = N_NONE; }
 
 static void race_agreed(Game *g, int stake)
 {
-    (void)stake;
-    Player *p = &g->player;
-    player_set_counter(p, 0, player_counter(p, 0) + 1);
-    p->time_actions += race_type == RACE_DRAG ? 0x444 : race_type == RACE_MULHOLLAND ? 0x777 : 0x555;
+    static const int amount[6] = { 0, 10, 50, 25, 150, 0 };
     end_negotiation();
-    SDL_Log("street: race (type %d, stake %d) against %s - the race is not rebuilt yet", race_type, stake, rival_name(rival));
-    SDL_strlcpy(status, "The race itself is not rebuilt yet", sizeof status);
-    leave();
+    if (race_type != RACE_DRAG) {
+        SDL_Log("street: %s race not rebuilt yet", race_type == RACE_MULHOLLAND ? "Mulholland" : "Aqueduct");
+        SDL_strlcpy(status, "Only the drag race is rebuilt so far", sizeof status);
+        leave();
+        return;
+    }
+    race_start(g, rival, race_type, stake, amount[stake]);
 }
 
 static int fuel(Game *g) { Car *c = player_car(&g->player); return c ? c->fuel : 0; }
