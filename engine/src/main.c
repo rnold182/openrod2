@@ -5,6 +5,7 @@
 #include <SDL3/SDL_main.h>
 
 #include "assets/exe.h"
+#include "cheats.h"
 #include "data.h"
 #include "game.h"
 #include "sound.h"
@@ -83,6 +84,11 @@ static void dispatch_key(Game *g, SDL_Scancode sc, SDL_Keycode k)
         video_toggle_fullscreen(&g->video);
         return;
     }
+    if (k == SDLK_F12 || k == SDLK_GRAVE) {
+        if (g->scene != &scene_intro && g->scene != &scene_license) cheats_toggle(g);
+        return;
+    }
+    if (cheats_active()) { cheats_key(g, k); return; }
     if (g->msg) { g->msg = 0; return; }     /* any key dismisses a message */
     if (k == SDLK_M && g->scene != &scene_license) { sound_toggle_music(); return; }
     if (g->scene->key) g->scene->key(g, sc, k);
@@ -104,12 +110,15 @@ static void run_script(Game *g, Uint64 now)
             SDL_Keycode k = SDL_GetKeyFromName(st->arg);
             dispatch_key(g, SDL_GetScancodeFromKey(k, NULL), k);
         } else if (!strcmp(st->kind, "text")) {
-            if (g->scene->text && !g->msg) g->scene->text(g, st->arg);
+            if (cheats_active()) cheats_text(g, st->arg);
+            else if (g->scene->text && !g->msg) g->scene->text(g, st->arg);
         } else if (!strcmp(st->kind, "click") || !strcmp(st->kind, "move")) {
             int x = 0, y = 0;
             SDL_sscanf(st->arg, "%d,%d", &x, &y);
             if (g->scene->mouse_move) g->scene->mouse_move(g, x, y);
             if (!strcmp(st->kind, "click")) dispatch_click(g, x, y);
+        } else if (!strcmp(st->kind, "cheat")) {
+            cheats_run(g, st->arg);
         } else if (!strcmp(st->kind, "shot")) {
             video_save_bmp(&g->video, st->arg);
         } else if (!strcmp(st->kind, "quit")) {
@@ -164,7 +173,8 @@ int main(int argc, char **argv)
             } else if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) {
                 dispatch_key(&g, e.key.scancode, e.key.key);
             } else if (e.type == SDL_EVENT_TEXT_INPUT) {
-                if (g.scene->text && !g.msg) g.scene->text(&g, e.text.text);
+                if (cheats_active()) cheats_text(&g, e.text.text);
+                else if (g.scene->text && !g.msg) g.scene->text(&g, e.text.text);
             } else if (e.type == SDL_EVENT_MOUSE_MOTION) {
                 int x, y;
                 window_to_screen(&g, e.motion.x, e.motion.y, &x, &y);
@@ -183,6 +193,7 @@ int main(int argc, char **argv)
         }
         if (g.scene->update) g.scene->update(&g);
         game_draw_message(&g);
+        cheats_draw(&g);
         video_present(&g.video);
     }
 
