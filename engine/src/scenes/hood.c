@@ -79,9 +79,13 @@ static int max_layers(Car *c)
     return c->intake.part >= 0 ? carbs_for_intake_grade(grade_of(&c->intake)) + 2 : 5;
 }
 
-static int carb_slot(Car *c, int k)     /* DS:209c: first carb slot for each intake grade */
+/* DS:209c: first carb slot for each intake grade. 2a21:3b34 rewrites the stock manifold's entry
+ * from the engine picture: 4 on the small engine (0x425), 5 on the others. */
+static int carb_slot(Car *c, int k)
 {
-    return exe_ds(0x209c, 16)[grade_of(&c->intake)] + k;
+    int g = grade_of(&c->intake);
+    if (g == 0) return (layer_pic(c, 0) == 0x425 ? 4 : 5) + k;
+    return exe_ds(0x209c, 16)[g] + k;
 }
 
 /* 2a21:33aa: where a layer sits (x, bottom y) inside the bay. */

@@ -25,6 +25,7 @@ static void start_game(Game *g)
 {
     size_t n = strlen(name);
     while (n > 0 && name[n - 1] == ' ') name[--n] = 0;     /* 1001:54ba trims trailing spaces */
+    if (!n) return;                                         /* rebuild: a driver needs a name */
     player_new(&g->player, name);                           /* 1001:5400: $1200 to start */
     SDL_StopTextInput(g->video.window);
     game_set_scene(g, &scene_garage);

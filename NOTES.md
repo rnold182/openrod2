@@ -51,6 +51,8 @@
   Value v>7 gets |0x10, i.e. values are standard 16-colour IRGB indices.
 - Tables in DS: 1da6 identity/current, 1db8 black (fades), 1dc8 in-car dashboard, 1dda, 1dec, 1dfe, 1e2e (=1dc8).
 - Palette regs 6 and 12 = player car paint, from 3-byte table at DS:4d1e.
+- Carb slots: DS:209c per intake grade, but 2a21:3b34 sets the stock manifold's entry to 4 on the small
+  engine (picture 0x425) and 5 on the others.
 
 ## Sound
 - `*.MUS` = AdLib Visual Composer songs (70-byte header, 240 ticks/beat, percussive mode).
@@ -107,6 +109,8 @@
   default 14 yellow): button outlines, hotspot corners, list rows drawn in the highlight colour.
 - `opt_game_cursor` (on): the game's own cursors instead of the Windows arrow.
 - `opt_animations` (on): the workshop moves above; off = instant (sounds stay). Cheat console: `anim`.
+- `opt_anim_speed` (100%, slider 25..400% in the options menu): speed of those moves. Cheat: `anim N`.
+- New game: an empty name is not accepted (the original allowed it).
 - `opt_tune_music_duck` (12 = 9 dB): music quieter on the timing-light screen (0 = original).
 - The bolt clink holds its key 15 ms (the original let go at once; with the emulated chip's exact
   timing the slow attack would make it silent).

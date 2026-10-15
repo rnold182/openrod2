@@ -70,7 +70,7 @@ void anim_run(Game *g)
             if (m->hum && opt_animations) sound_hum(m->hum);
         }
         int dist = m->y1 > m->y0 ? m->y1 - m->y0 : m->y0 - m->y1;
-        int moved = opt_animations ? (int)((SDL_GetTicks() - start_ms) * PIXELS_PER_S / 1000.0) : dist;
+        int moved = opt_animations ? (int)((SDL_GetTicks() - start_ms) * PIXELS_PER_S * opt_anim_speed / 100000.0) : dist;
         if (moved < dist) {
             int y = m->y0 + (m->y1 > m->y0 ? moved : -moved);
             draw(g, m, y, (moved / FRAME_PIXELS) & 1);

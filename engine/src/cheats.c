@@ -88,13 +88,18 @@ void cheats_run(Game *g, const char *line)
         player_date(p, &month, &dom);
         say("Day %d: month %d, day %d", d, month, dom);
     } else if (!strcmp(cmd, "anim")) {            /* until the options menu exists */
-        opt_animations = !strcmp(arg, "on") ? 1 : !strcmp(arg, "off") ? 0 : !opt_animations;
-        say("Animations %s", opt_animations ? "on" : "off");
+        if (atoi(arg) > 0) {
+            opt_anim_speed = SDL_clamp(atoi(arg), 25, 400);
+            opt_animations = 1;
+        } else {
+            opt_animations = !strcmp(arg, "on") ? 1 : !strcmp(arg, "off") ? 0 : !opt_animations;
+        }
+        say("Animations %s, speed %d%%", opt_animations ? "on" : "off", opt_anim_speed);
     } else if (!strcmp(cmd, "help")) {
         say("money N (add) / money =N (set)");
         say("car N / car list    part N / part list");
         say("day N (0 = June 16 .. 91)");
-        say("anim [on|off]");
+        say("anim [on|off|speed 25..400]");
     } else if (cmd[0]) {
         say("Unknown: %s (try help)", cmd);
     }
