@@ -408,7 +408,7 @@ static void draw_bolt(Game *g, Car *c, int b)
     int x, y;
     bolt_pos(c, b, &x, &y);
     int h = 16 - 4 * state;                     /* 12/8/4 rows: the bolt sinks in as it tightens */
-    video_blit_part(&g->video, sheet, 0, 0, 8, h, x + 20, y - h);
+    video_blit_part(&g->video, sheet, 0, 0, 8, h, x + 0x18, y - h);   /* 2a21:34a2: 8x12 box at (x+24, y-12) */
 }
 
 static void update(Game *g)

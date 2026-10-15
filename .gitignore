@@ -16,6 +16,7 @@
 
 # Generated output
 /build/
+/build_dev/
 /out/
 /capture/
 
