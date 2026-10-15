@@ -319,7 +319,7 @@ static void draw_see_it(Game *g)
     game_set_paint(g, colour);
     video_fill(v, 0, 0x41, 320, 0x46, colour_backdrop(colour));
     video_fill(v, 0, 0x87, 320, 10, scheme_byte(SEE_IT_SCHEME, 1));
-    car_draw(v, g, NULL, model, -1, 0x86);
+    car_draw(v, g, NULL, model, CAR_CENTRED, 0x86);
     ui_set_scheme(SEE_IT_SCHEME);
     ui_text(v, (320 - font_text_width(e->text)) / 2, 0x88, e->text);
 }

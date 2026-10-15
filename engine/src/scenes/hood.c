@@ -444,13 +444,10 @@ static void draw_bolt(Game *g, Car *c, int b)
     video_blit_part(&g->video, sheet, 0, 0, 8, h, x + 0x18, y - h);   /* 2a21:34a2: 8x12 box at (x+24, y-12) */
 }
 
-static void update(Game *g)
+/* The bay with a car's engine, manifold, carbs, bolts and wires (2a21:3b34). */
+static void draw_bay(Game *g, Car *c)
 {
     Video *v = &g->video;
-    Car *c = player_car(&g->player);
-    game_set_palette(g, PAL_SCREENS);
-    if (c) game_set_paint(g, c->colour);
-    video_clear(v, 0);
     game_draw_picture(g, BAY_FRAME, 0x18, 0);
     if (c) {
         for (int l = 0; l < 5; l++) {
@@ -462,13 +459,31 @@ static void update(Game *g)
             video_blit(v, im, x + 24 - (pic == SUPERCHARGER_PIC), y - im->h);
         }
         for (int b = 1; b <= 6; b++) draw_bolt(g, c, b);
-        if (c->engine.part >= 0 && c->wires) {
+        if (c->engine.part >= 0 && c->wires && !(hidden & HIDE_LAYER(0))) {
             int e = grade_of(&c->engine);
             int wx = ds16((uint16_t)(0x2036 + 4 * e)), wy = ds16((uint16_t)(0x2038 + 4 * e));
             if (c->wires < 0) game_draw_picture(g, WIRES_OFF, wx - 9, wy - 0x16);
             else game_draw_picture(g, WIRES_ON, wx - 0xc, wy - 0x14);
         }
     }
+}
+
+void hood_draw_car(Game *g, Car *c)
+{
+    unsigned keep = hidden;
+    hidden = 0;
+    draw_bay(g, c);             /* 2a21:3c14(0, ..): someone else's car gets no button panel */
+    hidden = keep;
+}
+
+static void update(Game *g)
+{
+    Video *v = &g->video;
+    Car *c = player_car(&g->player);
+    game_set_palette(g, PAL_SCREENS);
+    if (c) game_set_paint(g, c->colour);
+    video_clear(v, 0);
+    draw_bay(g, c);
     anim_run(g);
     game_draw_picture(g, BAY_PANEL, 0xe0, 0);
     if (anim_busy()) { game_draw_status_bar(g, NULL); return; }

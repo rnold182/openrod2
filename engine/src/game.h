@@ -55,10 +55,13 @@ struct Game {
     const char  *record_path;
 };
 
-extern const Scene scene_intro, scene_license, scene_garage, scene_newspaper, scene_hood, scene_trans, scene_under, scene_files;
+extern const Scene scene_intro, scene_license, scene_garage, scene_newspaper, scene_hood, scene_trans, scene_under, scene_files, scene_street;
 
 /* Garage picture with the current car, used as the backdrop by screens that open over it. */
 void garage_draw_background(Game *g);
+/* The engine bay of any car over the current picture, as "Pop the hood" shows it (no panel). */
+void hood_draw_car(Game *g, Car *c);
+void street_summon(Game *g, int rival);   /* cheat: call a rival to Burger's */
 
 void game_set_scene(Game *g, const Scene *s);
 const Image *game_picture(Game *g, int id);          /* SR.EXE picture ids: 1.., 1000.., 2000.. */

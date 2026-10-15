@@ -66,6 +66,7 @@ void day_date(int day, int *month, int *day_of_month);
 
 /* Create a car of `model` as the original does; `used` gives the worn engine/transmission variant. */
 Car *player_add_car(Player *p, int model, int price, int used);
+void car_make_stock(Car *c, int model, int price, int used);   /* the factory car, as 42aa builds it */
 int  player_add_part(Player *p, int part, int price);
 int  player_add_spare(Player *p, PartInst part);     /* to the front of the spares list, like SR.EXE */
 void player_remove_spare(Player *p, int index);
@@ -85,8 +86,14 @@ void part_wear_text(const PartInst *p, char out[16]);
 int  bolt_turn(uint8_t *state, int *mode);
 Car *player_car(Player *p);
 
-/* Draw a car side view with its bottom edge on `bottom`; returns the x used. x < 0 centres it. */
+/* Draw a car side view with its bottom edge on `bottom`; returns the x used (CAR_CENTRED centres it). */
 int  car_draw(Video *v, struct Game *g, const Car *car, int model, int x, int bottom);
+#define CAR_CENTRED (-32768)
+/* The same with explicit body patches (BODY_*), blower, tire grade (-1 = none) and wheel frame 0..3;
+ * x may be off screen (cars driving in and out). */
+int  car_draw_ex(Video *v, struct Game *g, int model, int body_flags, int blower, int tire_grade, int wheel_frame,
+                 int x, int bottom);
+int  car_body_width(struct Game *g, int model);
 int  car_garage_x(int body_width);
 
 #endif

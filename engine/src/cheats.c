@@ -87,6 +87,12 @@ void cheats_run(Game *g, const char *line)
         int month, dom;
         player_date(p, &month, &dom);
         say("Day %d: month %d, day %d", d, month, dom);
+    } else if (!strcmp(cmd, "rival")) {
+        if (g->scene != &scene_street) { say("Only at Burger's"); return; }
+        int r = atoi(arg);
+        if (r < 0 || r >= RIVAL_COUNT) { say("rival 0..%d (21 = The King)", RIVAL_COUNT - 1); return; }
+        street_summon(g, r);
+        say("Calling %s", g_rival_names[r]);
     } else if (!strcmp(cmd, "anim")) {            /* until the options menu exists */
         if (atoi(arg) > 0) {
             opt_anim_speed = SDL_clamp(atoi(arg), 25, 400);
@@ -99,7 +105,7 @@ void cheats_run(Game *g, const char *line)
         say("money N (add) / money =N (set)");
         say("car N / car list    part N / part list");
         say("day N (0 = June 16 .. 91)");
-        say("anim [on|off|speed 25..400]");
+        say("anim [on|off|speed 25..400]   rival N (at Burger's)");
     } else if (cmd[0]) {
         say("Unknown: %s (try help)", cmd);
     }

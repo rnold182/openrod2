@@ -117,6 +117,32 @@
   slot: "The game must have a name !"; a name that matches a save picks that slot; dialog 29 confirms
   replacing. Screens: picture 1001 (police book), 1003 name note, 1004/1005 load/save, 1006 forget it.
 
+## The street: Burger's Bungalow (1001:a626, dialog 20)
+- Garage "Hit the street" (4dd6 case 2): car runnable (7a44 street), fuel > 8 tenths (msg 36), time +0x222.
+  Gas tank (case 15) = mode 3 + 3925:2104 (gas station, dialog 22); Grudge Night (case 17, $30, Wednesdays,
+  fuel > 23) = mode 4 + 3925:1970.
+- Backdrop 1073 + 1149 (the guy by the door = "Look for opponent") at (0x122, 0x57), palette 1dda.
+- Timeouts: first car after 0x8c ticks, then every 0x118 ticks a car arrives (999a) or the parked one
+  leaves (953c(2)). Arrivals: random(100) < king chance (9802: progress 0 -> 50 or 10, 1 -> 5, 2 -> 8,
+  else 12) brings The King (rival 21), otherwise one of the rivals closest to your top speed (9848).
+- Rival parked: x = ((320 - w) / 2 + 4) & ~7, bottom 0xa8; hotspots from the model's hot boxes:
+  roof box = "Click to challenge" (down to y 160), hood box = "Pop the hood" (a3ba: the stock car of
+  that model in the bay, no panel, 800 ticks, once per rival, +0x111 time; message 67 otherwise).
+- 9be0 "Look for opponent": dialog 16 list of rivals with +0xb == 1, "Call" sends the parked one away
+  first; empty list -> message 41.
+- 9e3c challenge: fuel < 7 -> msg 65. Dialog 19: drag (DS:add6 = 1, bets dialog 17: kicks/$10/$50),
+  Mulholland (0x10, fuel > 16) / Aqueduct (8, fuel > 11) (dialog 18: $25/$150/pink slips). Stakes 0..5.
+  Not enough money -> 66. 9c8e decides (reputation DS:aa00/aa01 vs rival +0xf/+0x10, engine+trans grade
+  (c866), stock top speed (c6f6)); yes -> message from DS:504c, no -> DS:5038 (two tries). 800 ticks
+  without an answer -> "Chicken!". Race time: drag 0x444, Aqueduct 0x555, Mulholland 0x777; DS:479c++.
+- The King (975e progress): 1 -> ignores you, 2..6 -> messages 48..61 via DS:5054, 0 -> stage DS:47a6:
+  0 drag (msg 62), 1 Mulholland (63), 2 Aqueduct for pink slips (64).
+- Rivals (DS:ab7e, 22 x 18): +0..2 skills, +4 portrait, +6 name, +8 model, +0xa colour, +0xb met
+  (1) / out (-1), +0xc races, +0xd tuning (3 bumpers, 4 roof, 0x20 blower), +0xf/+0x10 reputation.
+  New game (534c/51f8): rivals 0-6 / 7-13 / 14-20 get unique models of class <3 / 3..5 / >=6.
+- Not rebuilt yet: the race (be82 setup, b584 drive, 0dcb segment), cars' engine sound when driving
+  in/out, the carhop (2a21:945a, picture 0x458) and rival taunts (9432), police.
+
 ## Rebuild deviations / modern options (planned options menu)
 - Newspaper paging: next page starts at the first ad not fully shown (original repeated one entry).
 - Hover highlight (`ui_highlight`, on by default) and its colour (`ui_highlight_colour`, EGA 0..15,

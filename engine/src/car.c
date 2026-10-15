@@ -6,6 +6,7 @@
 #include "assets/exe.h"
 #include "data.h"
 #include "game.h"
+#include "rivals.h"
 
 void player_new(Player *p, const char *name)
 {
@@ -19,6 +20,7 @@ void player_new(Player *p, const char *name)
     p->header_raw[0x28] = p->header_raw[0x29] = 1;     /* DS:aa00 / aa01 (1001:5400) */
     memcpy(p->rivals, data_rivals_initial(), sizeof p->rivals);
     p->word_7dfe = 100;
+    rivals_new_game(p);                                 /* 1001:534c */
 }
 
 int player_day(const Player *p)
@@ -53,6 +55,13 @@ Car *player_add_car(Player *p, int model, int price, int used)
 {
     if (p->car_count >= MAX_CARS) return NULL;
     Car *c = &p->cars[p->car_count];
+    car_make_stock(c, model, price, used);
+    if (p->current < 0) p->current = p->car_count;
+    return &p->cars[p->car_count++];
+}
+
+void car_make_stock(Car *c, int model, int price, int used)
+{
     memset(c, 0, sizeof *c);
     const CarModel *m = &g_models[model];
     c->model = model;
@@ -83,8 +92,6 @@ Car *player_add_car(Player *p, int model, int price, int used)
         c->trans.wear = (int16_t)(SDL_rand(3000) + 6000);
         c->engine.wear = (int16_t)(SDL_rand(3000) + 6000);
     }
-    if (p->current < 0) p->current = p->car_count;
-    return &p->cars[p->car_count++];
 }
 
 int player_add_spare(Player *p, PartInst part)
@@ -146,29 +153,42 @@ static void compose(Image *dst, const Image *src, int x, int y, int opaque)
 int car_draw(Video *v, Game *g, const Car *car, int model, int x, int bottom)
 {
     const CarModel *m = &g_models[model];
+    int body = car ? car->body : 0;
+    int blower = car && car->intake.part >= 0 && g_parts[car->intake.part].grade == 8;
+    int tires = car ? (car->tires.part >= 0 ? g_parts[car->tires.part].grade : -1) : ((m->spec1 & 0x30) >> 4);
+    return car_draw_ex(v, g, model, body, blower, tires, 0, x, bottom);
+}
+
+int car_draw_ex(Video *v, Game *g, int model, int body_flags, int blower, int tire_grade, int wheel_frame,
+                int x, int bottom)
+{
+    const CarModel *m = &g_models[model];
     const Image *body = game_picture(g, m->picture);
     if (!body) return x;
-    if (x < 0) x = ((320 - body->w) / 2 + 4) & ~7;
+    if (x == CAR_CENTRED) x = ((320 - body->w) / 2 + 4) & ~7;
     static uint8_t buf[320 * 200];
     Image img = { body->w, body->h, body->flags, buf };
     memcpy(buf, body->pixels, (size_t)body->w * body->h);
-    if (car) {
-        if ((car->body & BODY_ROOF_CHOPPED) && m->patch[1]) compose(&img, game_picture(g, m->patch[1]), m->geo[4], 0, 1);
-        if ((car->body & BODY_REAR_STRIPPED) && m->patch[3]) compose(&img, game_picture(g, m->patch[3]), 0, m->geo[7], 1);
-        if ((car->body & BODY_FRONT_STRIPPED) && m->patch[4]) compose(&img, game_picture(g, m->patch[4]), m->geo[8], m->geo[9], 1);
-        if (car->intake.part >= 0 && g_parts[car->intake.part].grade == 8 && model != 21 && m->patch[2])
-            compose(&img, game_picture(g, m->patch[2]), m->geo[5], m->geo[6], 0);     /* supercharger blower */
-    }
+    if ((body_flags & BODY_ROOF_CHOPPED) && m->patch[1]) compose(&img, game_picture(g, m->patch[1]), m->geo[4], 0, 1);
+    if ((body_flags & BODY_REAR_STRIPPED) && m->patch[3]) compose(&img, game_picture(g, m->patch[3]), 0, m->geo[7], 1);
+    if ((body_flags & BODY_FRONT_STRIPPED) && m->patch[4]) compose(&img, game_picture(g, m->patch[4]), m->geo[8], m->geo[9], 1);
+    if (blower && model != 21 && m->patch[2])
+        compose(&img, game_picture(g, m->patch[2]), m->geo[5], m->geo[6], 0);     /* supercharger blower */
     int top = bottom - body->h + 1;
     video_blit(v, &img, x, top);
-    int grade = car && car->tires.part >= 0 ? g_parts[car->tires.part].grade : ((m->spec1 & 0x30) >> 4);
-    const Image *wheel = game_picture(g, tire_picture(grade, 0));
-    if (wheel && (!car || car->tires.part >= 0)) {
+    const Image *wheel = tire_grade >= 0 ? game_picture(g, tire_picture(tire_grade, wheel_frame)) : NULL;
+    if (wheel) {
         int wy = top + body->h - wheel->h;
         video_blit(v, wheel, x + m->geo[0], wy);
         video_blit(v, wheel, x + m->geo[1], wy);
     }
     return x;
+}
+
+int car_body_width(Game *g, int model)
+{
+    const Image *body = game_picture(g, g_models[model].picture);
+    return body ? body->w : 0;
 }
 
 int bolt_mode_of(int state) { return state == 0 ? 0 : state == 1 ? 1 : 2; }

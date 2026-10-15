@@ -70,7 +70,7 @@ static void choose(Game *g, int i)
     if (i < 0) return;
     int id = dlg.w[i].id;
     if (needs_car(id) && g->player.current < 0) {
-        game_message(g, 9);                 /* "You've got no car, dummy!" */
+        game_message(g, g->player.car_count ? 40 : 9);  /* "Pick a car first!" / "You've got no car, dummy!" */
         return;
     }
     switch (id) {
@@ -80,6 +80,16 @@ static void choose(Game *g, int i)
         g->player.time_actions += 0x222;
         game_set_scene(g, &scene_newspaper);
         break;
+    case G_STREET: {                        /* 1001:4dd6 case 2 */
+        Car *car = player_car(&g->player);
+        if (g->player.car_count >= 16) { game_message(g, 34); break; }
+        if (g->player.part_count > 180) { game_message(g, 35); break; }
+        if (!car_runnable(car, 1)) { game_message(g, 39); break; }        /* "Your car's not running, speedy!" */
+        if (car->fuel <= 8) { game_message(g, 36); break; }               /* "...not enough gas to cruise down to Burger's." */
+        g->player.time_actions += 0x222;
+        game_set_scene(g, &scene_street);
+        break;
+    }
     case G_HOOD:
         game_set_scene(g, &scene_hood);
         break;
