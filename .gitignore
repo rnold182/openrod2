@@ -20,7 +20,7 @@
 /out/
 /capture/
 
-# Downloaded dependency (fetch with tools/get_sdl3.sh)
+# Downloaded dependency (fetch with tools/get_sdl3.ps1)
 /engine/third_party/SDL3/
 
 __pycache__/
@@ -28,4 +28,3 @@ __pycache__/
 
 # Local launcher for the original game in DOSBox
 /run_original.bat
-/HOTROD*.SAV
