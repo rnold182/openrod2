@@ -3,6 +3,7 @@
 #include <string.h>
 #include <SDL3/SDL.h>
 
+#include "assets/exe.h"
 #include "data.h"
 #include "game.h"
 
@@ -184,4 +185,43 @@ int bolt_turn(uint8_t *state, int *mode)
         *mode = 1;
     }
     return 0;
+}
+
+static int16_t perf(uint16_t table, int i) { return (int16_t)exe_ds_u16((uint16_t)(table + 2 * i)); }
+static int grade(const PartInst *p) { return p->part >= 0 ? g_parts[p->part].grade : 0; }
+
+long car_power(const Car *c)
+{
+    const CarModel *m = &g_models[c->model];
+    int ig = grade(&c->intake), tg = grade(&c->trans), dg = grade(&c->diff);
+    int cg = carbs_for_intake_grade(ig) >= 1 ? grade(&c->carb[0]) : 0;
+    int roof = (c->body & BODY_ROOF_CHOPPED) || !m->patch[1];
+    int front = (c->body & BODY_FRONT_STRIPPED) || !m->patch[4];
+    int rear = (c->body & BODY_REAR_STRIPPED) || !m->patch[3];
+    int t = c->timing < 0 ? -c->timing : c->timing;
+    long p = (perf(0x5294, cg * 9 + ig) + perf(0x52d0, tg)) * 15
+           + ((t * 4 / -3 + 2) * 44 + perf(0x52ec, c->cls)) * 10
+           + (((roof * 2 + front) * 4 + rear) * 4 + perf(0x52ca, grade(&c->engine))) * 25;
+    if (dg == 0) p += p * 5 / 100;                  /* 2.78:1 */
+    else if (dg == 2) p += p * 5 / -100;            /* 4.11:1 */
+    p /= 100;
+    p *= 10000 - c->engine.wear;
+    p /= 10000;
+    p *= tg == 0 ? 8 : 10;                          /* automatic transmissions lose some */
+    return p * 3 / 100 + 70;                        /* the +70 is easy to miss in the decompile */
+}
+
+int car_max_speed(const Car *c)
+{
+    long v = car_power(c) * 13 / 10;
+    return v > 130 ? 130 : (int)v;
+}
+
+void part_wear_text(const PartInst *p, char out[16])
+{
+    out[0] = 0;
+    if (p->wear == -128) return;
+    int pct = (int8_t)(p->wear / 100);
+    if (pct == 0) { SDL_strlcpy(out, "(`new`)", 16); return; }
+    SDL_snprintf(out, 16, "(%d%%%s worn)", pct, pct < 10 && pct > -10 ? " " : "");
 }

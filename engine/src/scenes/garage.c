@@ -4,6 +4,7 @@
 #include "../data.h"
 #include "../game.h"
 #include "../sound.h"
+#include "../ui/font.h"
 #include "../ui/partlist.h"
 #include "deals.h"
 
@@ -15,7 +16,7 @@ enum {
 };
 
 /* Modal dialogs shown on top of the garage. */
-enum { MODAL_NONE, MODAL_QUIT_MENU, MODAL_EXIT_DOS, MODAL_PAINT, MODAL_BODY };
+enum { MODAL_NONE, MODAL_QUIT_MENU, MODAL_EXIT_DOS, MODAL_PAINT, MODAL_BODY, MODAL_INFO };
 
 static Dialog dlg, modal;
 static int modal_kind;
@@ -96,6 +97,9 @@ static void choose(Game *g, int i)
     case G_FRONT_BUMPER:
         offer_body_job(g, id);
         break;
+    case G_CAR_INFO:
+        modal_kind = MODAL_INFO;
+        break;
     case G_SELL_PARTS:
         deals_sell_parts(g);
         break;
@@ -146,8 +150,38 @@ static int pay(Game *g, long amount, int msg)
     return 1;
 }
 
+/* 1001:72f2: the "Car parts" window. */
+static void draw_car_info(Game *g)
+{
+    Video *v = &g->video;
+    Car *c = player_car(&g->player);
+    if (!c) return;
+    ui_frame(v, 0x20, 0x19, 0x100, 0x8c, 1);
+    const char *title = exe_ds_str(exe_ds_u16(0x4e68));
+    ui_text(v, ((0x100 - font_text_width(title)) >> 1) + 0x20, 0x19, title);
+    const uint8_t *sc = exe_ds(0x1d06 + 5, 5);
+    video_fill(v, 0x20, 0x22, 0x100, 1, sc ? sc[3] : 15);
+    const PartInst *list[10] = { &c->engine, &c->intake, &c->carb[0], &c->carb[1], &c->carb[2],
+                                 &c->trans, &c->tires, &c->exhaust, &c->muffler, &c->diff };
+    int y = 0x24;
+    for (int k = 0; k < 10; k++) {
+        if (list[k]->part < 0) continue;
+        ui_text(v, (int16_t)exe_ds_u16((uint16_t)(0x4e54 + 2 * k)) + 0x20, y, g_parts[list[k]->part].ad);
+        char wear[16];
+        part_wear_text(list[k], wear);
+        if (wear[0]) ui_text(v, 0x110 - 9 * 6, y, wear);
+        y += 10;
+    }
+    char line[48];
+    SDL_snprintf(line, sizeof line, "Fuel %2d gallons", c->fuel / 10);
+    ui_text(v, 0x20, y + 10, line);
+    SDL_snprintf(line, sizeof line, "Max speed %3d mph", car_runnable(c, 1) ? car_max_speed(c) : 0);
+    ui_text(v, 0x20, y + 20, line);
+}
+
 static void choose_modal(Game *g, int i)
 {
+    if (modal_kind == MODAL_INFO) { modal_kind = MODAL_NONE; return; }   /* any click closes it */
     if (i < 0) return;
     int id = modal.w[i].id;
     Car *car = player_car(&g->player);
@@ -247,7 +281,8 @@ static void update(Game *g)
     if (modal_kind == MODAL_PAINT) g->video.palette[12] = colour_paint_reg(paint_colour);   /* the paint gun shows it */
     game_draw_status_bar(g, deals_active() ? deals_hover_text() : NULL);
     dialog_draw(&g->video, &dlg);
-    if (modal_kind) dialog_draw(&g->video, &modal);
+    if (modal_kind == MODAL_INFO) draw_car_info(g);
+    else if (modal_kind) dialog_draw(&g->video, &modal);
     if (tires.active) partlist_draw(&g->video, &tires);
     deals_draw(g);
 }

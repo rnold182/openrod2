@@ -13,8 +13,7 @@ int partlist_open(PartList *pl, const Player *p, int type, const char *extra)
         const PartInst *s = &p->parts[i];
         if (type >= 0 && g_parts[s->part].type != type) continue;
         char wear[16];
-        if (s->wear == -128) SDL_strlcpy(wear, "(`new`)", sizeof wear);
-        else SDL_snprintf(wear, sizeof wear, "(%d%% worn)", s->wear / 100);
+        part_wear_text(s, wear);
         SDL_snprintf(pl->lb.text[n], sizeof pl->lb.text[0], "%s %s", g_parts[s->part].ad, wear);
         pl->spare[n++] = i;
     }

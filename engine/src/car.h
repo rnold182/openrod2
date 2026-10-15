@@ -69,6 +69,11 @@ int  car_runnable(const Car *c, int street);
  * One click: out -> loose; tightening 1->2->3, then switches to loosening; loosening 3->2->out.
  * Returns 1 when the bolt has just come out. */
 int  bolt_mode_of(int state);
+/* 1001:c02c: the car's power figure; 1001:c6f6: top speed in mph (max 130). */
+long car_power(const Car *c);
+int  car_max_speed(const Car *c);
+/* 2a21:4e0c: "(new)", "(NN% worn)", or "" for parts without a wear counter. */
+void part_wear_text(const PartInst *p, char out[16]);
 int  bolt_turn(uint8_t *state, int *mode);
 Car *player_car(Player *p);
 
