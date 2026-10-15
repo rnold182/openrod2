@@ -16,6 +16,9 @@ void player_new(Player *p, const char *name)
     p->ads_week = -1;
     memset(p->ads, 0xFF, sizeof p->ads);
     p->ads_available = 42;
+    p->header_raw[0x28] = p->header_raw[0x29] = 1;     /* DS:aa00 / aa01 (1001:5400) */
+    memcpy(p->rivals, data_rivals_initial(), sizeof p->rivals);
+    p->word_7dfe = 100;
 }
 
 int player_day(const Player *p)
@@ -25,9 +28,10 @@ int player_day(const Player *p)
 }
 
 /* 1001:64b2 */
-void player_date(const Player *p, int *month, int *dom)
+void player_date(const Player *p, int *month, int *dom) { day_date(player_day(p), month, dom); }
+
+void day_date(int d, int *month, int *dom)
 {
-    int d = player_day(p);
     if (d < 15) { *month = 0; *dom = d + 16; }
     else if (d < 46) { *month = 1; *dom = d - 14; }
     else if (d <= 76) { *month = 2; *dom = d - 45; }

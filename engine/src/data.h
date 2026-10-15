@@ -39,6 +39,8 @@ extern PartInfo g_parts[PART_COUNT];
 extern const char *g_rival_names[RIVAL_COUNT];
 
 int data_load(const char *data_dir);    /* after exe_load() */
+#define RIVALS_SIZE 396
+const uint8_t *data_rivals_initial(void);  /* SR2_DATA's first block (DS:ab7e): the rivals' state */
 
 /* Ad text helpers: the first string of an ad is the item's name. */
 const char *ad_next_string(const char *s);

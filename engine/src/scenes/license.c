@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "../game.h"
+#include "files.h"
 #include "../ui/font.h"
 
 #define LICENSE_PICTURE 1002
@@ -45,7 +46,7 @@ static void choose(Game *g, int i)
 {
     if (i < 0) return;
     if (dlg.w[i].id == -3) start_game(g);                   /* OK */
-    else if (dlg.w[i].id == -2) SDL_Log("license: Old Game (load screen) not rebuilt yet");
+    else if (dlg.w[i].id == -2) { SDL_StopTextInput(g->video.window); files_open(g, FILES_LOAD, &scene_license); }   /* Old Game */
 }
 
 static void key(Game *g, SDL_Scancode sc, SDL_Keycode k)

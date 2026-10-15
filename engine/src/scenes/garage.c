@@ -7,6 +7,7 @@
 #include "../ui/font.h"
 #include "../ui/partlist.h"
 #include "deals.h"
+#include "files.h"
 
 /* Hotspot ids from dialog 0. */
 enum {
@@ -230,6 +231,8 @@ static void choose_modal(Game *g, int i)
     if (modal_kind == MODAL_QUIT_MENU) {
         if (id == -20) open_modal(MODAL_EXIT_DOS, 35);                  /* Quit */
         else if (id == -1) game_set_scene(g, &scene_license);           /* New Game */
+        else if (id == -23) files_open(g, FILES_SAVE, &scene_garage);   /* Save Game */
+        else if (id == -2) files_open(g, FILES_LOAD, &scene_garage);    /* Old Game */
         else if (id == -22) modal_kind = MODAL_NONE;                    /* Forget it */
         else SDL_Log("quit menu: '%s' not rebuilt yet", modal.w[i].text);
     } else if (modal_kind == MODAL_EXIT_DOS) {

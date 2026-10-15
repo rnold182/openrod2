@@ -50,11 +50,19 @@ typedef struct {
     uint8_t  ads[26];           /* ad slots of the current issue (0..41), 0x80 = sold, 0xFF = end */
     uint8_t  ad_cooldown[42];
     int      ads_available;
+
+    /* Saved as the original keeps them, decoded once the street and races are rebuilt. */
+    uint8_t  header_raw[0x38];  /* DS:a9d8 player block (name and money are taken from above) */
+    uint8_t  misc_479c[12];     /* DS:479c */
+    uint8_t  rivals[396];       /* DS:ab7e, starts as SR2_DATA's rivals block */
+    int16_t  word_7dfe;         /* DS:7dfe, 100 in a new game (1dcb:24d8) */
+    uint8_t  ads_tail[0x38];    /* DS:9b88..9bbf, the rest of the newspaper block */
 } Player;
 
 void player_new(Player *p, const char *name);
 int  player_day(const Player *p);                 /* 0 = June 16 .. 91 */
 void player_date(const Player *p, int *month, int *day_of_month);   /* month 0 = June */
+void day_date(int day, int *month, int *day_of_month);
 
 /* Create a car of `model` as the original does; `used` gives the worn engine/transmission variant. */
 Car *player_add_car(Player *p, int model, int price, int used);

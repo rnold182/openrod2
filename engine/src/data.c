@@ -19,6 +19,8 @@ enum {
     B_A542 = 1760, B_NAMES = 1762, B_UNUSED = 1850, B_AA9E = 2246, B_TEXT = 2330,
 };
 
+const uint8_t *data_rivals_initial(void) { return sr2_data + B_RIVALS; }
+
 static uint16_t rd16(const uint8_t *p) { return (uint16_t)(p[0] | p[1] << 8); }
 
 int data_load(const char *data_dir)

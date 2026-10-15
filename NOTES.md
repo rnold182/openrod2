@@ -103,6 +103,20 @@
   (voice 4 vol 0x5a note 0x52), 13 "turn" 0x61+rand(8) clink, 14 "turn" 0x3d clunk, 17 "turn1" 0x10
   (bolt turned), 18 init: voice 4 = "paint", voice 5 = "part".
 
+## Saved games (1001:5d82 save, 1001:59e2 load, 1001:58b2 slot scan)
+- `<drive>:HOTROD<n>.SAV`, n = 0..14, in the current directory (the rebuild uses the game folder).
+- Order: 0x38 player block (DS:a9d8: name +0, money long +0x24, aa00/aa01 = 1 in a new game, list heads
+  +0x2a current car, +0x2c other cars, +0x32 spares - only tested for non-zero), current car, car list,
+  spare part nodes, 12 bytes DS:479c, 396 bytes DS:ab7e (rivals, initially SR2_DATA block 0),
+  long DS:1f6a (action clock), long elapsed ticks (1f6e - 1f72), word DS:7dfe (100 new), 0x80 DS:9b40 ads.
+- Car record 0x2a: +0 price, +2 model, +4 colour, +5 class, +6 trans, +8 engine, +0xa intake,
+  +0xc/e/10 carbs, +0x12 tires, +0x14..1b bolts, +0x1c exhaust, +0x1e muffler, +0x20 diff, +0x22 wires,
+  +0x23 timing, +0x24 fuel (0x28 new), +0x26 body, +0x28 next; each present part field is followed in
+  the file by its 8-byte node (value, wear, part, next). Pools: cars DS:aec2 x16, nodes DS:b1be x190.
+- Saving copies the save's name over the player's name. Blank name (spaces/underscores) on an empty
+  slot: "The game must have a name !"; a name that matches a save picks that slot; dialog 29 confirms
+  replacing. Screens: picture 1001 (police book), 1003 name note, 1004/1005 load/save, 1006 forget it.
+
 ## Rebuild deviations / modern options (planned options menu)
 - Newspaper paging: next page starts at the first ad not fully shown (original repeated one entry).
 - Hover highlight (`ui_highlight`, on by default) and its colour (`ui_highlight_colour`, EGA 0..15,
@@ -111,6 +125,9 @@
 - `opt_animations` (on): the workshop moves above; off = instant (sounds stay). Cheat console: `anim`.
 - `opt_anim_speed` (100%, slider 25..400% in the options menu): speed of those moves. Cheat: `anim N`.
 - New game: an empty name is not accepted (the original allowed it).
+- `opt_save_info` (on): save/load lists show the pointed-at save's file time and in-game date in the
+  status bar (no format change: the time is the file's). Arrow keys move the choice; clicking the
+  chosen game again loads it.
 - `opt_tune_music_duck` (12 = 9 dB): music quieter on the timing-light screen (0 = original).
 - The bolt clink holds its key 15 ms (the original let go at once; with the emulated chip's exact
   timing the slow attack would make it silent).
