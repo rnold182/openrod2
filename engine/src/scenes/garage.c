@@ -52,6 +52,8 @@ static void place_car_hotspots(const Car *car, int x, int y)
             if (dlg.w[i].id == ids[k]) {
                 int x1 = h[4 * k] + x, y1 = h[4 * k + 1] + y;
                 dialog_set_rect(&dlg, i, x1, y1, x1 + h[4 * k + 2], y1 + h[4 * k + 3]);
+                if (SDL_getenv("SR2_DEBUG"))
+                    SDL_Log("garage hotspot %d: %d,%d - %d,%d", ids[k], x1, y1, x1 + h[4 * k + 2], y1 + h[4 * k + 3]);
             }
 }
 
@@ -208,7 +210,11 @@ static void choose_modal(Game *g, int i)
         else if (id == 2) paint_colour = paint_colour < 5 ? paint_colour + 1 : 0;   /* Next color */
         else if (id == 3) {                                                          /* Go ahead */
             modal_kind = MODAL_NONE;
-            if (pay(g, 20, 25)) { car->colour = (uint8_t)paint_colour; g->player.time_actions += 0x888; }
+            if (pay(g, 20, 25)) {
+                car->colour = (uint8_t)paint_colour;
+                g->player.time_actions += 0x888;
+                sound_spray(600);
+            }
         } else if (id == -23) modal_kind = MODAL_NONE;
         return;
     }
@@ -217,6 +223,7 @@ static void choose_modal(Game *g, int i)
         if (id == -20 && pay(g, body_cost, 33)) {
             car->body ^= (uint16_t)body_flag;
             g->player.time_actions += body_time;
+            sound_sfx(SFX_DROP);                                        /* slot 9 after the redraw */
         }
         return;
     }

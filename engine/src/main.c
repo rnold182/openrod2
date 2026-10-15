@@ -115,6 +115,7 @@ static void run_script(Game *g, Uint64 now)
         } else if (!strcmp(st->kind, "click") || !strcmp(st->kind, "move")) {
             int x = 0, y = 0;
             SDL_sscanf(st->arg, "%d,%d", &x, &y);
+            g->mouse_x = x; g->mouse_y = y; g->mouse_in = 1;
             if (g->scene->mouse_move) g->scene->mouse_move(g, x, y);
             if (!strcmp(st->kind, "click")) dispatch_click(g, x, y);
         } else if (!strcmp(st->kind, "cheat")) {
@@ -184,7 +185,11 @@ int main(int argc, char **argv)
             } else if (e.type == SDL_EVENT_MOUSE_MOTION) {
                 int x, y;
                 window_to_screen(&g, e.motion.x, e.motion.y, &x, &y);
+                g.mouse_x = x; g.mouse_y = y;
+                g.mouse_in = x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H;
                 if (g.scene->mouse_move) g.scene->mouse_move(&g, x, y);
+            } else if (e.type == SDL_EVENT_WINDOW_MOUSE_LEAVE) {
+                g.mouse_in = 0;
             } else if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && e.button.button == SDL_BUTTON_LEFT) {
                 int x, y;
                 window_to_screen(&g, e.button.x, e.button.y, &x, &y);
@@ -200,6 +205,7 @@ int main(int argc, char **argv)
         if (g.scene->update) g.scene->update(&g);
         game_draw_message(&g);
         cheats_draw(&g);
+        game_draw_cursor(&g);
         video_present(&g.video);
     }
 

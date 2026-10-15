@@ -46,6 +46,9 @@ struct Game {
     char         msg_queue_line1[4][64];
     int          msg_queued;
 
+    int          mouse_x, mouse_y;  /* framebuffer coordinates of the pointer */
+    int          mouse_in;          /* pointer is over the picture */
+
     const char  *shot_path;
     Uint64       shot_at;
     int          shot_key_at;
@@ -74,6 +77,10 @@ void game_message_short(Game *g, long amount);  /* message 1: "No go, hot shot. 
 void game_message_amount(Game *g, int n, long amount, int sticky);
 void game_message_clear(Game *g);
 void game_message_dismiss(Game *g);        /* key/click/timeout: next queued message, if any */
+
+/* The game's software mouse cursor (LIB1 picture 2, 2a21:2b44): wrench in the garage screens,
+ * pointing hand elsewhere. Drawn last, into the frame. */
+void game_draw_cursor(Game *g);
 
 /* The bottom status bar (2a21:1c5a / 1e86 / 1df4): "Bankroll: $..." at y 190, plus an optional
  * centred text in the space to its right. */

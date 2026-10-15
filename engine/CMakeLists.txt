@@ -21,6 +21,8 @@ add_executable(streetrod2 WIN32
     src/data.c
     src/video.c
     src/sound.c
+    src/options.c
+    src/anim.c
     src/assets/exe.c
     src/assets/lib.c
     src/ui/font.c

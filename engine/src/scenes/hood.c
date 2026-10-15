@@ -3,10 +3,12 @@
  * (car->tune[2..7]); a bolt's state is 0 (out) .. 3 (tight). */
 #include <string.h>
 
+#include "../anim.h"
 #include "../assets/exe.h"
 #include "../car.h"
 #include "../data.h"
 #include "../game.h"
+#include "../options.h"
 #include "../sound.h"
 #include "../ui/font.h"
 #include "../ui/partlist.h"
@@ -27,6 +29,11 @@ static int tuning;              /* timing-light screen (1001:7aec, dialog 30) */
 static int tune_frame;
 static Uint64 tune_last;
 static int bolt_mode[7];        /* 0 out, 1 tightening, 2 loosening (aiStack in 80a8) */
+static unsigned hidden;         /* layers (bits 0..4) and bolts (bits 8..14) still on their way in */
+#define HIDE_LAYER(l) (1u << (l))
+#define HIDE_BOLT(b)  (1u << (8 + (b)))
+#define BAY_CLIP_TOP    4       /* the sprite mover's band in the bay (2a21:381e / 34a2 / 369a) */
+#define BAY_CLIP_BOTTOM 0xb9
 
 static int16_t ds16(uint16_t off) { return (int16_t)exe_ds_u16(off); }
 
@@ -39,14 +46,18 @@ static PartInst *layer_part(Car *c, int layer)
 
 static int grade_of(const PartInst *p) { return p->part >= 0 ? g_parts[p->part].grade : 0; }
 
-/* Picture of a layer (table DS:47e0, layer*9 + grade; the V6 gets its own stock manifold). */
+/* Picture of a part of grade g in a layer (table DS:47e0, layer*9 + grade; the V6 gets its own
+ * stock manifold). */
+static int pic_for(Car *c, int layer, int g)
+{
+    if (layer == 1 && g == 0) return c->engine.part >= 0 && grade_of(&c->engine) == 0 ? 0x429 : 0x42a;
+    return ds16((uint16_t)(0x47e0 + 2 * ((layer > 2 ? 2 : layer) * 9 + g)));
+}
+
 static int layer_pic(Car *c, int layer)
 {
     PartInst *p = layer_part(c, layer);
-    if (p->part < 0) return 0;
-    int g = grade_of(p);
-    if (layer == 1 && g == 0) return c->engine.part >= 0 && grade_of(&c->engine) == 0 ? 0x429 : 0x42a;
-    return ds16((uint16_t)(0x47e0 + 2 * ((layer > 2 ? 2 : layer) * 9 + g)));
+    return p->part >= 0 ? pic_for(c, layer, grade_of(p)) : 0;
 }
 
 static int layers_installed(Car *c)
@@ -117,14 +128,14 @@ static void place_hotspots(Car *c)
             if (layer_part(c, layer_of_bolt[b])->part >= 0) {
                 int x, y;
                 bolt_pos(c, b, &x, &y);
-                dialog_set_rect(&dlg, i, x + 0x13, y - 0xd, x + 0x1d, y + 2);
+                dialog_set_rect(&dlg, i, x + 0x17, y - 0xd, x + 0x21, y + 2);   /* centred on the bolt drawn at x + 0x18 */
             } else {
                 w->flags &= (uint16_t)~WF_ENABLED;
             }
         } else if (w->id >= 7 && w->id <= 9) {
             w->flags &= (uint16_t)~WF_ENABLED;
         } else if (w->id == -13) {      /* wires, next to the distributor */
-            if (c->engine.part >= 0 && c->wires) {
+            if (c->engine.part >= 0 && c->wires && !(hidden & HIDE_LAYER(0))) {
                 int e = grade_of(&c->engine);
                 int a = c->wires < 0 ? 0x21 : 0x24, b = c->wires < 0 ? 0x16 : 0x14;
                 int x = ds16((uint16_t)(0x2036 + 4 * e)) - a, y = ds16((uint16_t)(0x2038 + 4 * e)) - b;
@@ -154,6 +165,8 @@ static void enter(Game *g)
     dialog_load(&dlg, 14);
     spares.active = 0;
     tuning = 0;
+    hidden = 0;
+    anim_reset();
     if (c) {
         sync_bolt_modes(c);
         place_hotspots(c);
@@ -191,11 +204,52 @@ static void auto_remove(Game *g, Car *c, int bolt)
     }
 }
 
+static void unhide(Game *g, int bits) { (void)g; hidden &= ~(unsigned)bits; }
+
+static void bolt_out_done(Game *g, int b)
+{
+    Car *c = player_car(&g->player);
+    if (!c) return;
+    auto_remove(g, c, b);
+    place_hotspots(c);
+}
+
+/* A bolt moving in the bay: the two frames of picture 1186 take turns, so it spins (34a2 / 369a). */
+static void bolt_move(Car *c, int b, int y0, int y1, int clip_bottom)
+{
+    int x, y;
+    bolt_pos(c, b, &x, &y);
+    AnimMove m = { BOLT_SHEET, 0, 0, 8, 12, 8, x + 0x18, y0, y1, BAY_CLIP_TOP, clip_bottom,
+                   SFX_HUM_BOLT, SFX_CLINK, 0 };
+    (void)y;
+    anim_move(&m);
+}
+
+/* 2a21:34a2 with state 1: a new bolt comes down from the top of the bay. */
+static void bolt_drop_in(Car *c, int b)
+{
+    int x, y;
+    bolt_pos(c, b, &x, &y);
+    hidden |= HIDE_BOLT(b);
+    bolt_move(c, b, -8, y - 12, BAY_CLIP_BOTTOM);
+    anim_call(unhide, (int)HIDE_BOLT(b));
+}
+
 static void click_bolt(Game *g, Car *c, int b)
 {
     if (layer_part(c, layer_of_bolt[b])->part < 0) return;
     g->player.time_actions += 0x36;
-    if (bolt_turn(&c->tune[1 + b], &bolt_mode[b])) auto_remove(g, c, b);
+    int before = c->tune[1 + b], mode = bolt_mode[b];
+    if (bolt_turn(&c->tune[1 + b], &bolt_mode[b])) {
+        int x, y;
+        bolt_pos(c, b, &x, &y);
+        bolt_move(c, b, y - 12 + 3, BAY_CLIP_BOTTOM, 0xb8);         /* 369a: it drops out of the bay */
+        anim_call(bolt_out_done, b);
+    } else if (mode == 0) {
+        bolt_drop_in(c, b);
+    } else if (c->tune[1 + b] != before) {
+        sound_sfx(SFX_TURN);                                        /* 34a2 + slot 17 */
+    }
 }
 
 static void open_spares(Game *g, Car *c)
@@ -227,13 +281,28 @@ static void install(Game *g, Car *c, int spare)
         cost = fits ? 0x199 : 0x222;
     }
     p->time_actions += cost;
-    if (!fits) { game_message(g, 24); return; }                      /* "That won't fit!" */
+    /* 2a21:381e: the part comes down from the top; one that doesn't fit stops 20 pixels short. */
+    int pic = pic_for(c, layer, pi->grade);
+    const Image *im = game_picture(g, pic);
+    int x, y;
+    layer_pos(c, layer, &x, &y);
+    if (im) {
+        AnimMove m = { pic, 0, 0, 0, 0, -1, x + 24 - (pic == SUPERCHARGER_PIC), 4 - im->h,
+                       y - im->h - (fits ? 0 : 0x14), BAY_CLIP_TOP, BAY_CLIP_BOTTOM, SFX_HUM_PART, SFX_CLUNK,
+                       fits ? 0 : 24 };                              /* "Pay attention, dummy! That won't fit!" */
+        anim_move(&m);
+    } else if (!fits) {
+        game_message(g, 24);
+    }
+    if (!fits) return;
+    hidden |= HIDE_LAYER(layer);
+    anim_call(unhide, (int)HIDE_LAYER(layer));
     player_remove_spare(p, spare);
     *layer_part(c, layer) = part;
     c->price = (int16_t)(c->price + part.value);
     if (layer == 0) c->wires = -1;
-    for (int b = 1; b <= 6; b++)                                     /* its bolts go in loose */
-        if (layer_of_bolt[b] == layer) { c->tune[1 + b] = 1; bolt_mode[b] = 1; }
+    for (int b = 6; b >= 1; b--)                                     /* its bolts go in loose */
+        if (layer_of_bolt[b] == layer) { c->tune[1 + b] = 1; bolt_mode[b] = 1; bolt_drop_in(c, b); }
     c->timing = (int8_t)(SDL_rand(9) - 5);
 }
 
@@ -260,6 +329,7 @@ static void tune_open(Car *c)
         sound_voice_note_off(v);
         sound_voice_note_on(v, 0x18);
     }
+    sound_music_duck(opt_tune_music_duck);     /* rebuild: hear the engine over the music */
     tune_sound(c);
 }
 
@@ -270,6 +340,7 @@ static void tune_close(Game *g)
     sound_voice_note_off(4);
     sound_voice_bend(4, 0x2000);
     sound_voice_timbre(4, "paint", 0x6a);
+    sound_music_duck(0);
     g->player.time_actions += 0x444;
     tuning = 0;
 }
@@ -334,6 +405,7 @@ static void picked(Game *g, int r)
 static void key(Game *g, SDL_Scancode sc, SDL_Keycode k)
 {
     (void)k;
+    if (anim_busy()) return;
     if (tuning) choose_tune(g, dialog_key(&tune, sc));
     else if (spares.active) picked(g, partlist_key(&spares, sc));
     else choose(g, dialog_key(&dlg, sc));
@@ -342,6 +414,7 @@ static void key(Game *g, SDL_Scancode sc, SDL_Keycode k)
 static void click(Game *g, int x, int y)
 {
     if (SDL_getenv("SR2_DEBUG")) SDL_Log("hood click %d,%d -> widget %d (list %d)", x, y, dialog_click(&dlg, x, y), spares.active);
+    if (anim_busy()) return;
     if (tuning) choose_tune(g, dialog_click(&tune, x, y));
     else if (spares.active) picked(g, partlist_click(&spares, x, y));
     else choose(g, dialog_click(&dlg, x, y));
@@ -358,7 +431,7 @@ static void mouse_move(Game *g, int x, int y)
 static void draw_bolt(Game *g, Car *c, int b)
 {
     int state = c->tune[1 + b];
-    if (state == 0 || layer_part(c, layer_of_bolt[b])->part < 0) return;
+    if (state == 0 || (hidden & HIDE_BOLT(b)) || layer_part(c, layer_of_bolt[b])->part < 0) return;
     const Image *sheet = game_picture(g, BOLT_SHEET);
     if (!sheet) return;
     int x, y;
@@ -377,7 +450,7 @@ static void update(Game *g)
     game_draw_picture(g, BAY_FRAME, 0x18, 0);
     if (c) {
         for (int l = 0; l < 5; l++) {
-            int pic = layer_pic(c, l);
+            int pic = hidden & HIDE_LAYER(l) ? 0 : layer_pic(c, l);
             const Image *im = pic ? game_picture(g, pic) : NULL;
             if (!im) continue;
             int x, y;
@@ -392,7 +465,9 @@ static void update(Game *g)
             else game_draw_picture(g, WIRES_ON, wx - 0xc, wy - 0x14);
         }
     }
+    anim_run(g);
     game_draw_picture(g, BAY_PANEL, 0xe0, 0);
+    if (anim_busy()) { game_draw_status_bar(g, NULL); return; }
     if (tuning && c) {
         draw_tune(g, c);
         const Widget *h = tune.hover >= 0 ? &tune.w[tune.hover] : NULL;

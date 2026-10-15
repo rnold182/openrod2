@@ -32,6 +32,7 @@ typedef struct {
     int          pitch_range_step;              /* range * 25 */
     uint8_t      slot_param[ADLIB_SLOTS][14];   /* 13 operator params + wave select */
     uint8_t      slot_volume[ADLIB_SLOTS];      /* 0..127 */
+    uint8_t      slot_atten[ADLIB_SLOTS];       /* extra attenuation in 0.75 dB steps (not in ADLIB.C) */
     uint8_t      note_pitch[ADLIB_VOICES];
     uint8_t      key_on[ADLIB_VOICES];
     int          half_tone_offset[ADLIB_VOICES];
@@ -51,6 +52,8 @@ void adlib_set_pitch_range(Adlib *a, int semitones);
 void adlib_set_timbre(Adlib *a, int voice, const int16_t *params);
 void adlib_set_volume(Adlib *a, int voice, int volume);
 void adlib_set_pitch_bend(Adlib *a, int voice, int bend);   /* 0..0x3fff, 0x2000 = centre */
+/* Rebuild addition: turn a voice down by `steps` x 0.75 dB on top of its volume (0 = as the original). */
+void adlib_set_attenuation(Adlib *a, int voice, int steps);
 void adlib_note_on(Adlib *a, int voice, int note);           /* MIDI-style note number */
 void adlib_note_off(Adlib *a, int voice);
 void adlib_silence(Adlib *a);

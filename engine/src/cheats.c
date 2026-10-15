@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "data.h"
+#include "options.h"
 #include "ui/font.h"
 
 #define CONSOLE_SCHEME 1
@@ -86,10 +87,14 @@ void cheats_run(Game *g, const char *line)
         int month, dom;
         player_date(p, &month, &dom);
         say("Day %d: month %d, day %d", d, month, dom);
+    } else if (!strcmp(cmd, "anim")) {            /* until the options menu exists */
+        opt_animations = !strcmp(arg, "on") ? 1 : !strcmp(arg, "off") ? 0 : !opt_animations;
+        say("Animations %s", opt_animations ? "on" : "off");
     } else if (!strcmp(cmd, "help")) {
         say("money N (add) / money =N (set)");
         say("car N / car list    part N / part list");
         say("day N (0 = June 16 .. 91)");
+        say("anim [on|off]");
     } else if (cmd[0]) {
         say("Unknown: %s (try help)", cmd);
     }

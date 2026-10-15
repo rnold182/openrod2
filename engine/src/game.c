@@ -2,7 +2,9 @@
 #include "game.h"
 
 #include "assets/exe.h"
+#include "anim.h"
 #include "data.h"
+#include "options.h"
 #include "ui/font.h"
 
 #define MSG_TABLE    0x11ea     /* DS: 6 bytes per message: layout, line 1, line 2 */
@@ -134,4 +136,20 @@ void game_draw_status_bar(Game *g, const char *text)
         int tx = ((room - font_text_width(text)) / 2 + end) & ~7;
         font_draw(v, tx, STATUS_Y + 1, text, fg, bg);
     }
+}
+
+/* LIB1 picture 2 holds three 16x16 cursors (wrench, hand, gas nozzle); hot spots from DS:200c. */
+enum { CURSOR_WRENCH, CURSOR_HAND, CURSOR_NOZZLE };
+
+void game_draw_cursor(Game *g)
+{
+    int own = opt_game_cursor && g->mouse_in;          /* the Windows arrow stays away over the picture */
+    if (own != !SDL_CursorVisible()) { if (own) SDL_HideCursor(); else SDL_ShowCursor(); }
+    if (!own || g->scene == &scene_intro || anim_busy()) return;    /* 2d90(-4) hides it during moves */
+    const Image *sheet = game_picture(g, 2);
+    if (!sheet) return;
+    int c = g->scene == &scene_garage || g->scene == &scene_hood || g->scene == &scene_trans ||
+            g->scene == &scene_under ? CURSOR_WRENCH : CURSOR_HAND;     /* 1001:6912 picks 0, menus 1 */
+    int hx = (int16_t)exe_ds_u16((uint16_t)(0x200c + 4 * c)), hy = (int16_t)exe_ds_u16((uint16_t)(0x200e + 4 * c));
+    video_blit_part(&g->video, sheet, 0, c * 16, 16, 16, g->mouse_x - hx, g->mouse_y - hy);
 }

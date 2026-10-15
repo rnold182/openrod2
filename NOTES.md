@@ -79,10 +79,37 @@
 - Bottom 10 rows (y 190..199), scheme 11: "`Bankroll:`$" (DS:4844 → string) at x 0, money from the next
   8-px boundary; the rest of the bar holds centred status texts (2a21:1cde).
 
+## Mouse cursor (2a21:2b44 / 2d90)
+- Software cursor drawn by the game from mouse mickeys (int 33h fn 0/3/0Bh only), clamped to 0..314 x 0..194.
+- LIB1 picture 2 = three 16x16 cursors stacked: 0 wrench (garage family, 1001:6912 sets it),
+  1 pointing hand (menus, newspaper), 2 gas nozzle. Hot spots at DS:200c (x, y per cursor).
+- 2d90(-4) hides it while something moves, 2d90(-2) shows it again. Only 4 colour planes, colour 0 is
+  transparent (no separate mask), so the white hand is faint on the newspaper in the original too.
+
+## Workshop animations (sprite mover, vector DS:a0da = 2a21:a2f2)
+- Video driver tables DS:7a40 / 7adc (20 far pointers) are copied to DS:a0ae; entry 11 = 1a21:a2f2.
+- a2f2(clipTop, clipBottom, x, y0, y1, sprite, altSprite): slides the sprite from y0 to y1 one pixel
+  per step inside the band, flipping between the two sprites (bolt sheets hold two thread frames).
+- Engine bay (band 4..0xb9): 381e(pic, 0) part comes down from 4-h to its seat; 381e(pic, 1) a part
+  that won't fit stops 0x14 short, then message 24, then it vanishes (39a4); 34a2(1) a bolt drops in
+  from y -8; 369a a bolt that comes out falls from y-9 to 0xb9 (band 4..0xb8). Removal is instant.
+- Transmission (band 0x0e..0x94): 30f2 gearbox rises from 0x94 (x 200-w, or 0xb8-w when it won't fit);
+  2e92(1) bolt (frame 4 of 1081) drops from y 8; 2fc4 a bolt falls out to 0x94; 322e = gearbox gone.
+- DS:2018 = 0 while a whole screen is redrawn (moves suppressed), 1 otherwise.
+- Sound table DS:73c2 (far pointers, copied to DS:bb8c): slot 2 paint gun (voice 5 "part" 0x5a),
+  5 bolt hum (voice 4 vol 0x40 note 0x55), 9 "hitcar" 0x2e (gearbox down, body job), 10 part hum
+  (voice 4 vol 0x5a note 0x52), 13 "turn" 0x61+rand(8) clink, 14 "turn" 0x3d clunk, 17 "turn1" 0x10
+  (bolt turned), 18 init: voice 4 = "paint", voice 5 = "part".
+
 ## Rebuild deviations / modern options (planned options menu)
 - Newspaper paging: next page starts at the first ad not fully shown (original repeated one entry).
 - Hover highlight (`ui_highlight`, on by default) and its colour (`ui_highlight_colour`, EGA 0..15,
-  default 14 yellow) — both to be exposed in the options menu.
+  default 14 yellow): button outlines, hotspot corners, list rows drawn in the highlight colour.
+- `opt_game_cursor` (on): the game's own cursors instead of the Windows arrow.
+- `opt_animations` (on): the workshop moves above; off = instant (sounds stay). Cheat console: `anim`.
+- `opt_tune_music_duck` (12 = 9 dB): music quieter on the timing-light screen (0 = original).
+- The bolt clink holds its key 15 ms (the original let go at once; with the emulated chip's exact
+  timing the slow attack would make it silent).
 
 ## Tools
 - Python RE tools need Pillow, numpy and capstone (installed for C:\Program Files\Python313).

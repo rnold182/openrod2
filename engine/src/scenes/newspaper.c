@@ -220,6 +220,7 @@ static void enter(Game *g)
     dialog_load(&front, 3);
     dialog_load(&page, 4);
     for (int i = 1; i <= 24; i++) page.w[i].no_mark = 1;    /* ad rows get a background highlight */
+    dialog_set_mark(&page, dialog_find(&page, -3), 265, 152, 310, 183);   /* frame the garage picture, not the whole corner */
     mode = MODE_FRONT;
 }
 

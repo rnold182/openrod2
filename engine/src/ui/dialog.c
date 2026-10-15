@@ -39,8 +39,14 @@ static void draw_hover(Video *v, const Dialog *d)
         video_fill(v, x - 2, y + bh + 1, bw + 4, 1, (uint8_t)c);
         video_fill(v, x - 2, y - 2, 1, bh + 4, (uint8_t)c);
         video_fill(v, x + bw + 1, y - 2, 1, bh + 4, (uint8_t)c);
+    } else if (w->type == W_ITEM) {
+        const char *text = dialog_text(d, d->hover);
+        if (!text[0]) return;
+        ui_set_scheme(w->scheme);
+        font_draw(v, w->x1 + 2, w->y1, text, (uint8_t)c, cur.bg);     /* the pointed-at row lights up */
     } else if (w->type == W_HOTSPOT) {
         int x1 = w->x1, y1 = w->y1, x2 = w->x2 - 1, y2 = w->y2 - 1;
+        if (w->has_mark) { x1 = w->mark[0]; y1 = w->mark[1]; x2 = w->mark[2] - 1; y2 = w->mark[3] - 1; }
         int len = (x2 - x1) < 12 || (y2 - y1) < 12 ? 2 : 4;
         uint8_t k = (uint8_t)c;
         video_fill(v, x1, y1, len, 1, k); video_fill(v, x1, y1, 1, len, k);
@@ -153,6 +159,20 @@ void dialog_set_rect(Dialog *d, int i, int x1, int y1, int x2, int y2)
     Widget *w = &d->w[i];
     w->x1 = (int16_t)x1; w->y1 = (int16_t)y1; w->x2 = (int16_t)x2; w->y2 = (int16_t)y2;
     w->flags |= WF_ENABLED;
+}
+
+void dialog_set_mark(Dialog *d, int i, int x1, int y1, int x2, int y2)
+{
+    if (i < 0 || i >= d->count) return;
+    Widget *w = &d->w[i];
+    w->mark[0] = (int16_t)x1; w->mark[1] = (int16_t)y1; w->mark[2] = (int16_t)x2; w->mark[3] = (int16_t)y2;
+    w->has_mark = 1;
+}
+
+int dialog_find(const Dialog *d, int id)
+{
+    for (int i = 0; i < d->count; i++) if (d->w[i].id == id) return i;
+    return -1;
 }
 
 /* Port of 2a21:44a8. */

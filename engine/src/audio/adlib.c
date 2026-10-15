@@ -94,6 +94,13 @@ static void write_bd(Adlib *a)      /* AM/VIB depth are always 0 in Street Rod 2
     wr(a, 0xBD, (a->percussive ? 0x20 : 0) | a->perc_bits);
 }
 
+/* Total level register value: 63 - t, plus the rebuild's optional attenuation. */
+static int level(const Adlib *a, int slot, int t)
+{
+    int l = 63 - t + a->slot_atten[slot];
+    return l > 63 ? 63 : l;
+}
+
 /* SndSetAllPrm: write every register belonging to one slot. */
 static void write_slot(Adlib *a, int slot)
 {
@@ -103,7 +110,7 @@ static void write_slot(Adlib *a, int slot)
     wr(a, 0x08, 0);
     int t = 63 - (p[P_TL] & 0x3f);
     t = (t * a->slot_volume[slot] * 2 + 127) / 254;
-    wr(a, 0x40 + off, (p[P_KSL] << 6) | (63 - t));
+    wr(a, 0x40 + off, (p[P_KSL] << 6) | level(a, slot, t));
     if (!oper_slot[slot])
         wr(a, 0xC0 + chan_slot[slot], (p[P_FB] << 1) | (p[P_FM] ? 0 : 1));
     wr(a, 0x60 + off, (p[P_AR] << 4) | (p[P_DR] & 15));
@@ -193,19 +200,29 @@ void adlib_set_timbre(Adlib *a, int voice, const int16_t *p)
     }
 }
 
+static int carrier_slot(const Adlib *a, int voice)
+{
+    if (a->percussive && voice >= ADLIB_BD)
+        return slot_perc[voice - ADLIB_BD][voice == ADLIB_BD ? 1 : 0];
+    return slot_voice[voice][1];
+}
+
 void adlib_set_volume(Adlib *a, int voice, int volume)
 {
-    int slot;
-    if (a->percussive && voice >= ADLIB_BD)
-        slot = slot_perc[voice - ADLIB_BD][voice == ADLIB_BD ? 1 : 0];
-    else
-        slot = slot_voice[voice][1];
+    int slot = carrier_slot(a, voice);
     if (volume > 127) volume = 127;
     a->slot_volume[slot] = (uint8_t)volume;
     const uint8_t *p = a->slot_param[slot];
     int t = 63 - (p[P_TL] & 0x3f);
     t = (t * volume * 2 + 127) / 254;
-    wr(a, 0x40 + offset_slot[slot], (p[P_KSL] << 6) | (63 - t));
+    wr(a, 0x40 + offset_slot[slot], (p[P_KSL] << 6) | level(a, slot, t));
+}
+
+void adlib_set_attenuation(Adlib *a, int voice, int steps)
+{
+    int slot = carrier_slot(a, voice);
+    a->slot_atten[slot] = (uint8_t)(steps < 0 ? 0 : steps > 63 ? 63 : steps);
+    adlib_set_volume(a, voice, a->slot_volume[slot]);
 }
 
 /* ChangePitch: convert a 14-bit bend into a half-tone offset plus a fine F-number table. */

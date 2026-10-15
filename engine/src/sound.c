@@ -24,6 +24,7 @@ static struct {
     int              playing;
     int              muted;
     double           tick_acc;
+    long             timed_left[ADLIB_VOICES];   /* effect notes that let go by themselves (samples) */
     FILE            *rec;
     uint32_t         rec_bytes;
 } S;
@@ -63,6 +64,8 @@ static void SDLCALL feed(void *userdata, SDL_AudioStream *stream, int additional
                     if (!mus_tick(&S.player)) S.playing = 0;
                 }
             }
+            for (int v = 3; v <= 5; v++)
+                if (S.timed_left[v] && --S.timed_left[v] == 0) adlib_note_off(&S.adlib, v);
             OPL3_GenerateResampled(&S.chip, buf + 2 * i);
         }
         SDL_PutAudioStreamData(stream, buf, n * 4);
@@ -181,6 +184,42 @@ void sound_voice_timbre(int voice, const char *timbre, int volume)
 
 void sound_voice_volume(int voice, int volume) { LOCKED(adlib_set_volume(&S.adlib, voice, volume)); }
 void sound_voice_bend(int voice, int bend) { LOCKED(adlib_set_pitch_bend(&S.adlib, voice, bend)); }
-void sound_voice_note_on(int voice, int note) { LOCKED(adlib_note_on(&S.adlib, voice, note)); }
+void sound_voice_note_on(int voice, int note) { LOCKED(S.timed_left[voice] = 0; adlib_note_on(&S.adlib, voice, note)); }
 void sound_voice_note_off(int voice) { LOCKED(adlib_note_off(&S.adlib, voice)); }
 void sound_pitch_range(int semitones) { LOCKED(adlib_set_pitch_range(&S.adlib, semitones)); }
+
+void sound_music_duck(int steps)
+{
+    static const int music_voices[] = { 0, 1, 2, ADLIB_BD, ADLIB_SD, ADLIB_TOM, ADLIB_CYM, ADLIB_HH };
+    LOCKED(for (int i = 0; i < 8; i++) adlib_set_attenuation(&S.adlib, music_voices[i], steps));
+}
+
+void sound_hum(int kind)
+{
+    if (kind == SFX_HUM_OFF) { sound_voice_note_off(4); return; }
+    sound_voice_timbre(4, "paint", kind == SFX_HUM_PART ? 0x5a : 0x40);
+    sound_voice_note_off(4);
+    sound_voice_note_on(4, kind == SFX_HUM_PART ? 0x52 : 0x55);
+}
+
+void sound_sfx(int sfx)
+{
+    static const struct { const char *timbre; int volume, note; } fx[] = {
+        { "turn", 0x75, 0x61 }, { "turn", 0x75, 0x3d }, { "turn1", 0x75, 0x10 }, { "hitcar", 0x70, 0x2e },
+    };
+    LOCKED(S.timed_left[3] = 0);
+    sound_voice_timbre(3, fx[sfx].timbre, fx[sfx].volume);
+    sound_voice_note_off(3);
+    sound_voice_note_on(3, fx[sfx].note + (sfx == SFX_CLINK ? SDL_rand(8) : 0));
+    /* 113e lets go at once; the emulated chip would cut the slow attack (AR 14) to nothing, so the
+     * key stays down for 15 ms and the release rings like it did on the card. */
+    if (sfx == SFX_CLINK) LOCKED(S.timed_left[3] = 15L * RATE / 1000);
+}
+
+void sound_spray(int ms)
+{
+    sound_voice_timbre(5, "part", 0x6a);       /* voice 5 = "part" since 3c57:1394 */
+    sound_voice_note_off(5);
+    sound_voice_note_on(5, 0x5a);
+    LOCKED(S.timed_left[5] = (long)ms * RATE / 1000);
+}

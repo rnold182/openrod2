@@ -37,6 +37,8 @@ typedef struct {
     char     override[DIALOG_TEXT_MAX];
     int      has_override;
     int      no_mark;           /* hover highlight drawn by the scene itself */
+    int16_t  mark[4];           /* hover mark rectangle when it differs from the click area */
+    int      has_mark;
 } Widget;
 
 typedef struct {
@@ -52,6 +54,8 @@ int  dialog_load(Dialog *d, int index);
 void dialog_set_text(Dialog *d, int widget, const char *text);
 const char *dialog_text(const Dialog *d, int widget);
 void dialog_set_rect(Dialog *d, int widget, int x1, int y1, int x2, int y2);   /* enables it */
+void dialog_set_mark(Dialog *d, int widget, int x1, int y1, int x2, int y2);   /* hover mark only */
+int  dialog_find(const Dialog *d, int id);      /* widget index with this id, or -1 */
 void dialog_draw(Video *v, Dialog *d);
 
 /* Input: return the chosen widget index, or -1. Hover also updates the status line. */
