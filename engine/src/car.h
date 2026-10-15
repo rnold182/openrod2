@@ -21,7 +21,7 @@ typedef struct {
     uint8_t  cls;
     PartInst engine, trans, intake, carb[3], tires, exhaust, muffler, diff;
     uint8_t  tune[8];           /* "bolt" settings (car+0x14..0x1b) */
-    uint8_t  unknown22;
+    int8_t   wires;             /* ignition wires: 1 connected, -1 disconnected, 0 no engine */
     int8_t   timing;            /* ignition advance/retard, -5..3 */
     int16_t  fuel;              /* gallons? starts at 40 */
     uint16_t body;              /* body mods (car+0x26): roof chopped, bumpers stripped */
@@ -59,6 +59,11 @@ void player_date(const Player *p, int *month, int *day_of_month);   /* month 0 =
 /* Create a car of `model` as the original does; `used` gives the worn engine/transmission variant. */
 Car *player_add_car(Player *p, int model, int price, int used);
 int  player_add_part(Player *p, int part, int price);
+int  player_add_spare(Player *p, PartInst part);     /* to the front of the spares list, like SR.EXE */
+void player_remove_spare(Player *p, int index);
+/* 1001:7a44: engine, wires, manifold, carbs and their bolts all tight; `street` also needs
+ * transmission and tires and the two under-car bolts. */
+int  car_runnable(const Car *c, int street);
 Car *player_car(Player *p);
 
 /* Draw a car side view with its bottom edge on `bottom`; returns the x used. x < 0 centres it. */

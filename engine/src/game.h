@@ -48,7 +48,7 @@ struct Game {
     const char  *record_path;
 };
 
-extern const Scene scene_intro, scene_license, scene_garage, scene_newspaper;
+extern const Scene scene_intro, scene_license, scene_garage, scene_newspaper, scene_hood;
 
 void game_set_scene(Game *g, const Scene *s);
 const Image *game_picture(Game *g, int id);          /* SR.EXE picture ids: 1.., 1000.., 2000.. */

@@ -21,6 +21,8 @@ typedef struct {
     uint16_t picture;               /* side-view body picture */
     uint8_t  geo[12];               /* wheel x (front, rear), driver x/y, patch positions */
     uint16_t patch[5];              /* -, chopped roof, blower, front bumper, rear bumper pictures */
+    uint8_t  hot[20];               /* garage hotspots over the car (x, y, w, h): rear bumper, roof,
+                                       transmission, hood, front bumper (SR2_DATA -> DS:9872) */
 } CarModel;
 
 typedef struct {

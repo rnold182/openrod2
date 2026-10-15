@@ -55,7 +55,7 @@ Car *player_add_car(Player *p, int model, int price, int used)
     c->fuel = 40;
     c->cls = m->cls;
     c->colour = m->colour;
-    c->unknown22 = 1;
+    c->wires = 1;
     c->timing = (int8_t)(SDL_rand(9) - 5);
 
     int make = (m->spec1 & 0x0e) >> 1;
@@ -82,13 +82,38 @@ Car *player_add_car(Player *p, int model, int price, int used)
     return &p->cars[p->car_count++];
 }
 
-int player_add_part(Player *p, int part, int price)
+int player_add_spare(Player *p, PartInst part)
 {
     if (p->part_count >= MAX_PARTS) return -1;
+    memmove(&p->parts[1], &p->parts[0], sizeof p->parts[0] * (size_t)p->part_count);
+    p->parts[0] = part;
+    p->part_count++;
+    return 0;
+}
+
+void player_remove_spare(Player *p, int i)
+{
+    if (i < 0 || i >= p->part_count) return;
+    memmove(&p->parts[i], &p->parts[i + 1], sizeof p->parts[0] * (size_t)(p->part_count - i - 1));
+    p->part_count--;
+}
+
+int player_add_part(Player *p, int part, int price)
+{
     PartInst pi = make_part(part);
     pi.value = (int16_t)price;
-    p->parts[p->part_count++] = pi;
-    return 0;
+    return player_add_spare(p, pi);
+}
+
+int car_runnable(const Car *c, int street)
+{
+    if (c->engine.part < 0 || c->wires <= 0 || c->intake.part < 0) return 0;
+    int ncarbs = carbs_for_intake_grade(g_parts[c->intake.part].grade);
+    for (int k = 0; k < ncarbs && k < 3; k++) if (c->carb[k].part < 0) return 0;
+    for (int b = 0; b < ncarbs + 3; b++) if (c->tune[2 + b] != 3) return 0;
+    if (!street) return 1;
+    if (c->trans.part < 0 || c->tires.part < 0) return 0;
+    return c->tune[0] == 3 && c->tune[1] == 3;
 }
 
 /* 2a21:89fa centring rule, with the garage's right-side limit. */

@@ -47,6 +47,7 @@ int data_load(const char *data_dir)
         cm->spec3 = rd16(r + 18);
         memcpy(cm->geo, sr2_data + B_GEOMETRY + m * 12, 12);
         for (int k = 0; k < 5; k++) cm->patch[k] = rd16(sr2_data + B_PATCHES + m * 10 + 2 * k);
+        memcpy(cm->hot, sr2_data + B_9872 + m * 20, 20);
     }
     for (int i = 0; i < RIVAL_COUNT; i++) g_rival_names[i] = TEXT(rd16(sr2_data + B_NAMES + 2 * (22 + i)));
 #undef TEXT

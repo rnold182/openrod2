@@ -130,9 +130,11 @@ static void run_script(Game *g, Uint64 now)
 int main(int argc, char **argv)
 {
     static Game g;
+    const char *new_game_name = NULL;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--script") && i + 1 < argc) parse_script(argv[++i]);
         else if (!strcmp(argv[i], "--record-audio") && i + 1 < argc) g.record_path = argv[++i];
+        else if (!strcmp(argv[i], "--new-game") && i + 1 < argc) new_game_name = argv[++i];   /* testing */
     }
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
         fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
@@ -158,6 +160,10 @@ int main(int argc, char **argv)
     sound_play_playlist(PLAYLIST_MAIN);     /* SR.EXE starts the music before the intro */
 
     g.scene = &scene_intro;
+    if (new_game_name) {
+        player_new(&g.player, new_game_name);
+        g.scene = &scene_garage;
+    }
     g.scene->enter(&g);
 
     Uint64 last = SDL_GetTicks();

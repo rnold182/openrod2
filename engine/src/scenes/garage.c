@@ -7,7 +7,7 @@
 /* Hotspot ids from dialog 0. */
 enum {
     G_NEWSPAPER = 1, G_STREET = 2, G_CALENDAR = 3, G_QUIT = 4, G_SELL_PARTS = 5, G_CARS = 6,
-    G_PAINT = 7, G_TIRES = 8, G_TRANSMISSION = 9, G_HOOD = 10, G_FRONT_BUMPER = 11, G_REAR_BUMPER = 12,
+    G_PAINT = 7, G_TIRES = 8, G_TRANSMISSION = 9, G_HOOD = 10, G_REAR_BUMPER = 11, G_FRONT_BUMPER = 12,
     G_ROOF = 13, G_UNDER_CAR = 14, G_TANK = 15, G_CAR_INFO = 16, G_GRUDGE = 17, G_RADIO = -40,
 };
 
@@ -28,6 +28,19 @@ static void enter(Game *g)
     (void)g;
     dialog_load(&dlg, 0);
     modal_kind = MODAL_NONE;
+}
+
+/* 1001:67b8: hood, transmission, roof and bumper hotspots follow the car. */
+static void place_car_hotspots(const Car *car, int x, int y)
+{
+    static const int ids[5] = { G_REAR_BUMPER, G_ROOF, G_TRANSMISSION, G_HOOD, G_FRONT_BUMPER };
+    const uint8_t *h = g_models[car->model].hot;
+    for (int i = 0; i < dlg.count; i++)
+        for (int k = 0; k < 5; k++)
+            if (dlg.w[i].id == ids[k]) {
+                int x1 = h[4 * k] + x, y1 = h[4 * k + 1] + y;
+                dialog_set_rect(&dlg, i, x1, y1, x1 + h[4 * k + 2], y1 + h[4 * k + 3]);
+            }
 }
 
 static int needs_car(int id)
@@ -51,6 +64,9 @@ static void choose(Game *g, int i)
         if (g->player.part_count > 180) { game_message(g, 35); break; }
         g->player.time_actions += 0x222;
         game_set_scene(g, &scene_newspaper);
+        break;
+    case G_HOOD:
+        game_set_scene(g, &scene_hood);
         break;
     case G_QUIT:
         open_modal(MODAL_QUIT_MENU, 1);
@@ -111,7 +127,13 @@ static void update(Game *g)
     game_draw_picture(g, 1198, 0x50, 0xac);
     if (car) {
         const Image *body = game_picture(g, g_models[car->model].picture);
-        if (body) car_draw(&g->video, g, car, car->model, car_garage_x(body->w), 0x9e);
+        if (body) {
+            int x = car_draw(&g->video, g, car, car->model, car_garage_x(body->w), 0x9e);
+            place_car_hotspots(car, x, 0x9e - body->h + 1);
+        }
+    } else {
+        for (int i = 0; i < dlg.count; i++)                   /* 1001:6796 */
+            if (dlg.w[i].id >= 9 && dlg.w[i].id <= 13) dlg.w[i].flags &= (uint16_t)~WF_ENABLED;
     }
     game_draw_status_bar(g, NULL);
     dialog_draw(&g->video, &dlg);
