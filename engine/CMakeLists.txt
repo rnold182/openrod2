@@ -33,6 +33,7 @@ add_executable(streetrod2 WIN32
     src/scenes/trans.c
     src/scenes/under.c
     src/ui/partlist.c
+    src/ui/listbox.c
 )
 target_include_directories(streetrod2 PRIVATE src)
 target_link_libraries(streetrod2 PRIVATE sraudio SDL3::SDL3)

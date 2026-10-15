@@ -3,24 +3,20 @@
 #define SR_PARTLIST_H
 
 #include "../car.h"
-#include "dialog.h"
+#include "listbox.h"
 
-enum { PL_NONE = -1, PL_CANCEL = -2 };
+enum { PL_NONE = -1, PL_CANCEL = -2, PL_EXTRA = -3 };
 
 typedef struct {
-    Dialog dlg;
-    int    active;
-    int    count, sel, top;
-    int    spare[MAX_PARTS + 1];    /* index into Player.parts, -1 for the extra entry */
-    char   text[MAX_PARTS + 1][64];
+    ListBox lb;
+    int     active;
+    int     spare[LISTBOX_MAX];     /* index into Player.parts, -1 for the extra entry */
 } PartList;
 
-/* Lists the player's spares of `type`; `extra` (or NULL) is an additional first entry such as
- * "Remove current muffler". Returns the number of entries (0 = nothing to show, list not opened). */
+/* Lists the player's spares of `type` (-1 = all types); `extra` (or NULL) is an additional first
+ * entry such as "Remove current muffler". Returns the number of entries (0 = list not opened). */
 int  partlist_open(PartList *pl, const Player *p, int type, const char *extra);
-/* Input: returns PL_NONE, PL_CANCEL, or the chosen entry's spare index (-1 = the extra entry is
- * reported as PL_EXTRA). */
-#define PL_EXTRA (-3)
+/* Input: returns PL_NONE, PL_CANCEL, PL_EXTRA, or the chosen spare's index. */
 int  partlist_click(PartList *pl, int x, int y);
 int  partlist_key(PartList *pl, SDL_Scancode sc);
 void partlist_mouse_move(PartList *pl, int x, int y);

@@ -89,14 +89,14 @@ static void dispatch_key(Game *g, SDL_Scancode sc, SDL_Keycode k)
         return;
     }
     if (cheats_active()) { cheats_key(g, k); return; }
-    if (g->msg) { g->msg = 0; return; }     /* any key dismisses a message */
+    if (g->msg && !g->msg_sticky) { g->msg = 0; return; }     /* any key dismisses a message */
     if (k == SDLK_M && g->scene != &scene_license) { sound_toggle_music(); return; }
     if (g->scene->key) g->scene->key(g, sc, k);
 }
 
 static void dispatch_click(Game *g, int x, int y)
 {
-    if (g->msg) { g->msg = 0; return; }
+    if (g->msg && !g->msg_sticky) { g->msg = 0; return; }
     if (g->scene->click) g->scene->click(g, x, y);
 }
 
@@ -180,7 +180,7 @@ int main(int argc, char **argv)
                 dispatch_key(&g, e.key.scancode, e.key.key);
             } else if (e.type == SDL_EVENT_TEXT_INPUT) {
                 if (cheats_active()) cheats_text(&g, e.text.text);
-                else if (g.scene->text && !g.msg) g.scene->text(&g, e.text.text);
+                else if (g.scene->text && (!g.msg || g.msg_sticky)) g.scene->text(&g, e.text.text);
             } else if (e.type == SDL_EVENT_MOUSE_MOTION) {
                 int x, y;
                 window_to_screen(&g, e.motion.x, e.motion.y, &x, &y);

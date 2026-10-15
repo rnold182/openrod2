@@ -40,6 +40,21 @@ void game_message(Game *g, int n)
     g->msg = n;
     g->msg_start = SDL_GetTicks();
     g->msg_line1[0] = 0;
+    g->msg_sticky = 0;
+}
+
+void game_message_clear(Game *g) { g->msg = 0; g->msg_sticky = 0; }
+
+void game_message_amount(Game *g, int n, long amount, int sticky)
+{
+    game_message(g, n);
+    g->msg_sticky = sticky;
+    const char *s = exe_ds_str(exe_ds_u16((uint16_t)(MSG_TABLE + n * 6 + 2)));
+    const char *dollar = SDL_strchr(s, '$');
+    if (!dollar) return;
+    const char *rest = dollar + 1;
+    while (*rest >= '0' && *rest <= '9') rest++;
+    SDL_snprintf(g->msg_line1, sizeof g->msg_line1, "%.*s%ld%s", (int)(dollar - s + 1), s, amount, rest);
 }
 
 void game_message_short(Game *g, long amount)
@@ -56,7 +71,7 @@ static int16_t layout_word(int layout, int k) { return (int16_t)exe_ds_u16((uint
 void game_draw_message(Game *g)
 {
     if (!g->msg) return;
-    if (game_ticks_since(g->msg_start) >= (int16_t)exe_ds_u16(MSG_TIMEOUT)) {
+    if (!g->msg_sticky && game_ticks_since(g->msg_start) >= (int16_t)exe_ds_u16(MSG_TIMEOUT)) {
         g->msg = 0;
         return;
     }

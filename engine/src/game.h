@@ -41,6 +41,7 @@ struct Game {
     int          msg;           /* message number, 0 = none */
     Uint64       msg_start;
     char         msg_line1[64]; /* replaces line 1 when set (the original sprintf'd into the table) */
+    int          msg_sticky;    /* stays up (no timeout, input goes to the dialog below) */
 
     const char  *shot_path;
     Uint64       shot_at;
