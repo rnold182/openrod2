@@ -1,4 +1,4 @@
-# Street Rod 2 — rebuild
+# OpenRod 2
 
 A from-scratch rebuild of *Street Rod 2* (California Dreams, 1990) for modern Windows, in C with SDL3.
 It reads the original game's files at runtime, so you need your own copy of the DOS game.
