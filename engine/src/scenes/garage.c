@@ -16,7 +16,8 @@ enum {
 };
 
 /* Modal dialogs shown on top of the garage. */
-enum { MODAL_NONE, MODAL_QUIT_MENU, MODAL_EXIT_DOS, MODAL_PAINT, MODAL_BODY, MODAL_INFO };
+enum { MODAL_NONE, MODAL_QUIT_MENU, MODAL_EXIT_DOS, MODAL_PAINT, MODAL_BODY, MODAL_INFO, MODAL_CALENDAR };
+static Uint64 calendar_start;
 
 static Dialog dlg, modal;
 static int modal_kind;
@@ -100,6 +101,10 @@ static void choose(Game *g, int i)
     case G_CAR_INFO:
         modal_kind = MODAL_INFO;
         break;
+    case G_CALENDAR:
+        modal_kind = MODAL_CALENDAR;
+        calendar_start = SDL_GetTicks();
+        break;
     case G_SELL_PARTS:
         deals_sell_parts(g);
         break;
@@ -179,9 +184,22 @@ static void draw_car_info(Game *g)
     ui_text(v, 0x20, y + 20, line);
 }
 
+/* 1001:650a: the month page with today marked; it stays up for 500 ticks or until a click. */
+static void draw_calendar(Game *g)
+{
+    int day = player_day(&g->player), month, dom;
+    player_date(&g->player, &month, &dom);
+    int x = ((day + 22) % 7) * 18 + (int16_t)exe_ds_u16(0x4d48);
+    int y = ((day + 22) / 7 - (int16_t)exe_ds_u16((uint16_t)(0x4d52 + 2 * month))) * 7
+            + (int16_t)exe_ds_u16((uint16_t)(0x4d4a + 2 * month));
+    game_draw_picture(g, month < 2 ? 0x478 : 0x47a, 0x50, 4);
+    game_draw_picture(g, 0x479, 0x50 + x, 4 + y);
+    if (game_ticks_since(calendar_start) >= 500) modal_kind = MODAL_NONE;
+}
+
 static void choose_modal(Game *g, int i)
 {
-    if (modal_kind == MODAL_INFO) { modal_kind = MODAL_NONE; return; }   /* any click closes it */
+    if (modal_kind == MODAL_INFO || modal_kind == MODAL_CALENDAR) { modal_kind = MODAL_NONE; return; }
     if (i < 0) return;
     int id = modal.w[i].id;
     Car *car = player_car(&g->player);
@@ -282,6 +300,7 @@ static void update(Game *g)
     game_draw_status_bar(g, deals_active() ? deals_hover_text() : NULL);
     dialog_draw(&g->video, &dlg);
     if (modal_kind == MODAL_INFO) draw_car_info(g);
+    else if (modal_kind == MODAL_CALENDAR) draw_calendar(g);
     else if (modal_kind) dialog_draw(&g->video, &modal);
     if (tires.active) partlist_draw(&g->video, &tires);
     deals_draw(g);
