@@ -11,6 +11,44 @@
 
 static struct { uint8_t fg, bg, fill, border, style; } cur = { 15, 0, 0, 15, 1 };
 
+int ui_highlight = 1;
+
+int ui_find_register(const Video *v, int ega)
+{
+    for (int r = 15; r >= 0; r--)
+        if (v->palette[r] == ega) return r;
+    return -1;
+}
+
+static int highlight_colour(const Video *v)
+{
+    int r = ui_find_register(v, 14);            /* yellow */
+    return r >= 0 ? r : ui_find_register(v, 15);/* else white */
+}
+
+static void draw_hover(Video *v, const Dialog *d)
+{
+    if (!ui_highlight || d->hover < 0) return;
+    const Widget *w = &d->w[d->hover];
+    int c = highlight_colour(v);
+    if (c < 0 || w->no_mark) return;
+    if (w->type == W_BUTTON) {
+        int x = w->x1 + 1, y = w->y1 + 1, bw = w->x2 - w->x1 - 2, bh = w->y2 - w->y1 - 2;
+        video_fill(v, x - 2, y - 2, bw + 4, 1, (uint8_t)c);
+        video_fill(v, x - 2, y + bh + 1, bw + 4, 1, (uint8_t)c);
+        video_fill(v, x - 2, y - 2, 1, bh + 4, (uint8_t)c);
+        video_fill(v, x + bw + 1, y - 2, 1, bh + 4, (uint8_t)c);
+    } else if (w->type == W_HOTSPOT) {
+        int x1 = w->x1, y1 = w->y1, x2 = w->x2 - 1, y2 = w->y2 - 1;
+        int len = (x2 - x1) < 12 || (y2 - y1) < 12 ? 2 : 4;
+        uint8_t k = (uint8_t)c;
+        video_fill(v, x1, y1, len, 1, k); video_fill(v, x1, y1, 1, len, k);
+        video_fill(v, x2 - len + 1, y1, len, 1, k); video_fill(v, x2, y1, 1, len, k);
+        video_fill(v, x1, y2, len, 1, k); video_fill(v, x1, y2 - len + 1, 1, len, k);
+        video_fill(v, x2 - len + 1, y2, len, 1, k); video_fill(v, x2, y2 - len + 1, 1, len, k);
+    }
+}
+
 void ui_set_scheme(int scheme)
 {
     if (scheme <= 0) return;
@@ -179,6 +217,7 @@ void dialog_draw(Video *v, Dialog *d)
 {
     int in_field = 0;
     for (int i = 0; i < d->count; i++) draw_widget(v, d, i, &in_field);
+    draw_hover(v, d);
 }
 
 static int clickable(const Widget *w)

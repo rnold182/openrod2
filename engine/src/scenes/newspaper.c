@@ -91,20 +91,27 @@ static uint8_t scheme_byte(int scheme, int k)
     return s ? s[k] : 0;
 }
 
-/* Layout of one page, ported from 1001:0ac8. Fills the list widgets of dialog 4. */
+static int entry_height(int c) { return entries[c].lines * 9 + 3; }
+
+/* Layout of one page, ported from 1001:0ac8. Fills the list widgets of dialog 4.
+ * Change from the original: the next page starts at the first entry that was not fully visible
+ * (the original always repeated the last entry of the previous page at the top). */
 static void layout_page(Video *v, int draw)
 {
     uint8_t rule = scheme_byte(AD_SCHEME, 3);
-    int y = 0, c = page_start, w = 1;
+    uint8_t fg = scheme_byte(AD_SCHEME, 0), bg = scheme_byte(AD_SCHEME, 1);
+    int hl = ui_highlight ? ui_find_register(v, 7) : -1;     /* light grey behind the pointed-at ad */
+    int y = 0, c = page_start, w = 1, last_full = -1;
     for (int i = 1; i <= 24; i++) page.w[i].flags &= (uint16_t)~WF_ENABLED;
     for (;;) {
         if (draw) video_fill(v, AD_X, y + 1, 0xb8, 1, rule);
         if (y + 3 > PAGE_BOTTOM) break;
         Entry *e = &entries[c];
         Widget *wd = w <= 24 ? &page.w[w] : NULL;
+        int y1 = y + 1;
         if (wd) {
             wd->flags |= WF_ENABLED;
-            wd->y1 = (int16_t)(y + 1);
+            wd->y1 = (int16_t)y1;
             wd->id = e->kind == E_HEADER ? 0 : (int16_t)c;
         }
         y += 3;
@@ -115,28 +122,38 @@ static void layout_page(Video *v, int draw)
         } else {
             n = ad_format_lines(e->text, e->lines, e->price, lines, 4);
         }
-        ui_set_scheme(AD_SCHEME);
+        int lit = draw && hl >= 0 && wd && page.hover == w && wd->id > 0;
+        if (lit) video_fill(v, AD_X, y1 + 1, 0xb8, n * 9 + 1, (uint8_t)hl);
+        int drawn = 0;
         for (int l = 0; l < n; l++) {
-            if (draw) ui_text(v, AD_X, y, lines[l]);
+            if (draw) font_draw(v, AD_X, y, lines[l], fg, lit ? (uint8_t)hl : bg);
             y += 9;
+            drawn++;
             if (y > PAGE_BOTTOM) break;
         }
+        if (drawn == n && y <= PAGE_BOTTOM + 1) last_full = c;
         if (wd) wd->y2 = (int16_t)(y + 1 > PAGE_BOTTOM ? PAGE_BOTTOM : y + 1);
         w++;
-        int wrapped = c >= entry_count;
-        c = wrapped ? 1 : c + 1;
+        c = c >= entry_count ? 1 : c + 1;
         if (y >= PAGE_BOTTOM) break;
     }
-    page_next = c != 1 ? c - 1 : entry_count;
+    if (last_full < 0) page_next = c;
+    else page_next = last_full >= entry_count ? 1 : last_full + 1;
     if (draw && y + 1 < PAGE_BOTTOM) video_fill(v, AD_X, y + 1, 0xb8, 1, rule);
 }
 
+/* Fill the previous page so that it ends right before the current first entry. */
 static void prev_page(void)
 {
     int c = page_start - 1;
     if (c < 1) c = entry_count;
-    for (int room = PAGE_BOTTOM; (room -= entries[c].lines * 9 + 3) > 0;)
-        if (--c < 1) c = entry_count;
+    int used = entry_height(c);
+    for (;;) {
+        int prev = c - 1 < 1 ? entry_count : c - 1;
+        if (prev == page_start || used + entry_height(prev) > PAGE_BOTTOM + 1) break;
+        used += entry_height(prev);
+        c = prev;
+    }
     page_start = c;
 }
 
@@ -199,6 +216,7 @@ static void enter(Game *g)
     build_entries(p);
     dialog_load(&front, 3);
     dialog_load(&page, 4);
+    for (int i = 1; i <= 24; i++) page.w[i].no_mark = 1;    /* ad rows get a background highlight */
     mode = MODE_FRONT;
 }
 
@@ -313,6 +331,7 @@ static void update(Game *g)
         dialog_draw(&g->video, &front);
     } else {
         draw_page(g);
+        if (mode == MODE_ADS) dialog_draw(&g->video, &page);   /* hover marks only: its widgets are hotspots */
         if (mode == MODE_BUY) dialog_draw(&g->video, &buy);
         if (mode == MODE_SEE_IT) draw_see_it(g);
     }

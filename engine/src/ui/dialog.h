@@ -36,6 +36,7 @@ typedef struct {
     uint16_t keys;              /* two PC scancodes (low = primary), 0xFF = none */
     char     override[DIALOG_TEXT_MAX];
     int      has_override;
+    int      no_mark;           /* hover highlight drawn by the scene itself */
 } Widget;
 
 typedef struct {
@@ -57,6 +58,11 @@ void dialog_draw(Video *v, Dialog *d);
 int  dialog_mouse_move(Dialog *d, int x, int y);
 int  dialog_click(Dialog *d, int x, int y);
 int  dialog_key(const Dialog *d, SDL_Scancode sc);
+
+/* Modern addition: mark the widget under the mouse (button outline / hotspot corners). */
+extern int ui_highlight;
+/* Palette register currently showing EGA colour `ega`, or -1. */
+int  ui_find_register(const Video *v, int ega);
 
 /* Draw the frame used by the original UI around (x, y, w, h) with the given scheme. */
 void ui_frame(Video *v, int x, int y, int w, int h, int scheme);
