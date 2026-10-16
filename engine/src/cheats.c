@@ -6,6 +6,7 @@
 
 #include "data.h"
 #include "options.h"
+#include "rivals.h"
 #include "scenes/race.h"
 #include "ui/font.h"
 
@@ -94,6 +95,9 @@ void cheats_run(Game *g, const char *line)
         if (r < 0 || r >= RIVAL_COUNT) { say("rival 0..%d (21 = The King)", RIVAL_COUNT - 1); return; }
         street_summon(g, r);
         say("Calling %s", g_rival_names[r]);
+    } else if (!strcmp(cmd, "agree")) {               /* rivals take every bet */
+        rivals_always_agree = strcmp(arg, "off") != 0;
+        say("Rivals %s", rivals_always_agree ? "take every bet" : "decide for themselves");
     } else if (!strcmp(cmd, "autodrive")) {           /* testing the race */
         race_autodrive(strcmp(arg, "off") != 0);
         say("Autodrive %s", strcmp(arg, "off") ? "on" : "off");

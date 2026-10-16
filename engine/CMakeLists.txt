@@ -13,7 +13,7 @@ target_include_directories(opl3 PUBLIC third_party/nuked_opl3)
 add_library(sraudio STATIC src/audio/adlib.c src/audio/mus.c)
 target_link_libraries(sraudio PUBLIC opl3 m)
 
-add_executable(streetrod2 WIN32
+add_executable(openrod2 WIN32
     src/main.c
     src/game.c
     src/car.c
@@ -43,14 +43,14 @@ add_executable(streetrod2 WIN32
     src/ui/partlist.c
     src/ui/listbox.c
 )
-target_include_directories(streetrod2 PRIVATE src)
-target_link_libraries(streetrod2 PRIVATE sraudio SDL3::SDL3)
-target_compile_options(streetrod2 PRIVATE -Wall -Wextra)
-target_link_options(streetrod2 PRIVATE -static-libgcc)
+target_include_directories(openrod2 PRIVATE src)
+target_link_libraries(openrod2 PRIVATE sraudio SDL3::SDL3)
+target_compile_options(openrod2 PRIVATE -Wall -Wextra)
+target_link_options(openrod2 PRIVATE -static-libgcc)
 
 add_executable(mus2wav tools/mus2wav.c)
 target_link_libraries(mus2wav PRIVATE sraudio)
 
 # Ship SDL3.dll next to the game.
-add_custom_command(TARGET streetrod2 POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL3::SDL3> $<TARGET_FILE_DIR:streetrod2>)
+add_custom_command(TARGET openrod2 POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL3::SDL3> $<TARGET_FILE_DIR:openrod2>)

@@ -73,7 +73,7 @@
 - Toolchain: GCC (WinLibs via winget) + CMake + Ninja; SDL3 3.4.18 MinGW dev package in `engine/third_party/SDL3`.
 - `cmake -S engine -B build -G Ninja -DCMAKE_BUILD_TYPE=Release` then `cmake --build build`
   (with WinLibs `mingw64/bin` on PATH).
-- `build/streetrod2.exe [datadir]` — finds the original files next to the exe, one level up, or in `datadir`.
+- `build/openrod2.exe [datadir]` — finds the original files next to the exe, one level up, or in `datadir`.
 - Test hooks: `--shot out.bmp <ms>` saves the 320x200 frame and exits; `--key-at <ms>` simulates Enter.
 - Keys: Enter/Esc skip intro waits, M toggles music, F11 / Alt+Enter fullscreen; after the intro Esc quits, Enter replays.
 
@@ -165,10 +165,22 @@
 - Results (b584): win -> DS:512a[stake] message + money, pink slips = the rival's car (rival leaves the
   game); loss -> 0x54 / 0x53; blown engine removes engine+manifold+carbs (b46e), dropped trans (b4da);
   dialog 23 shows the time ("Your winning time ...", "In %d.%d sec you covered only %2d%% ...").
+- View geometry (0dcb:062c/0684): x = 160 - (camera_x - x) * 4 / d, y = 60 + (h - 1900) * 4 / d with
+  d = distance/8 + 4 (distance in 1/64 segment); ground h 2000, road edges 1500/3300, centre 2400, you
+  at 2560 (a564), opponent at 2200 (a9cc). View clip rows 0x12..0x65, mirror x 0xf0..0x13f rows 0x16..0x2a.
+- Opponent picture (0dcb:af98, table DS:b7b6 built in 37ce from DS:aa9e): kind by distance ahead A:
+  >= 0x3c0 none; >= 0x80 kinds 3..8 (medium rear, pre-scaled smaller); < -0x38 behind (mirror, 9..);
+  -0x38..0x40: same lane -> 2, behind -> 9, left -> 0 (side view at x 0 cut to w - x + 0x40 columns);
+  0x41..0x7f: left -> 1 (big rear, right edge at x, top y - h + 0x11) else 3. Changes step one kind per
+  frame (not ported). Scale bytes for the copies live in runtime data (DS:8e3c), the rebuild scales 12/d.
+- Starter (0dcb:a746, a5aa): torso 0x816 at (8, 0x12), arm frames of 0x817 next to it; frame 0, then
+  frame 1 from "Go" (DS:ad0a); slides left 8 px per frame once you roll (DS:a2b4 += 4), gone after 0x58.
+- Timing (8d9e/8ef4): 0xf + 0x19 ticks, then "Get ready !" for 0x6e + rand(0x67) ticks, then "Go !".
+  The acceptance message is read at Burger's before the race screen appears.
 - Race screen: palette 1dc8, 2013 roof at top, dashboard by model (patch[0] high byte: 0 -> 2011,
   1 -> 2019, 2 -> 2012) at y 100, gauge centres DS:1c0a/1c10 (tach) and 1c22/1c28 (speedo), gear plate
-  table DS:1cd0 at (0x108, 0x27). Opponent pictures SR2_DATA -> DS:aa9e (patch[0] low byte). The road is
-  the rebuild's own drawing for now (the 0dcb renderer is not ported).
+  table DS:1cd0 at (0x108, 0x27). Opponent pictures SR2_DATA -> DS:aa9e (patch[0] low byte). The road rows use
+  the original projection, drawn flat by the rebuild (the 0dcb road renderer with curves isn't ported).
 
 ## Rebuild deviations / modern options (planned options menu)
 - Newspaper paging: next page starts at the first ad not fully shown (original repeated one entry).

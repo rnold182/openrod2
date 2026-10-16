@@ -127,8 +127,11 @@ void rivals_meet(Player *p, int r)
     rival_set(p, r, 0xd, mods);
 }
 
+int rivals_always_agree;
+
 int rivals_accepts_bet(const Player *p, int r, int stake)
 {
+    if (rivals_always_agree) return 1;
     int m = rival_model(p, r);
     int q = model_quality(p, m) - model_quality(p, -1);
     int s = model_max_speed(p, m) - model_max_speed(p, -1);

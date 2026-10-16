@@ -37,6 +37,7 @@ static Car hood_car;
 static int negotiating, race_type, tries, last_refusal = -1;
 static Uint64 neg_start;
 static char status[64];
+static int race_pending = -1, race_stake;   /* the race starts once his answer has been read */
 
 static void wait_for(double ticks) { wait_start = SDL_GetTicks(); wait_ticks = ticks; }
 
@@ -94,6 +95,7 @@ static void enter(Game *g)
     dialog_load(&dlg, 20);
     state = S_EMPTY;
     rival = next_rival = -1;
+    race_pending = -1;
     hood_view = negotiating = 0;
     looking.active = 0;
     status[0] = 0;
@@ -106,7 +108,7 @@ static void end_negotiation(void) { negotiating = N_NONE; }
 
 static void race_agreed(Game *g, int stake)
 {
-    static const int amount[6] = { 0, 10, 50, 25, 150, 0 };
+    (void)g;
     end_negotiation();
     if (race_type != RACE_DRAG) {
         SDL_Log("street: %s race not rebuilt yet", race_type == RACE_MULHOLLAND ? "Mulholland" : "Aqueduct");
@@ -114,7 +116,8 @@ static void race_agreed(Game *g, int stake)
         leave();
         return;
     }
-    race_start(g, rival, race_type, stake, amount[stake]);
+    race_pending = race_type;
+    race_stake = stake;
 }
 
 static int fuel(Game *g) { Car *c = player_car(&g->player); return c ? c->fuel : 0; }
@@ -135,6 +138,7 @@ static void challenge(Game *g)
         return;
     }
     if (fuel(g) < 7) { game_message(g, 0x41); return; }
+    if (!car_runnable(player_car(p), 1)) { game_message(g, 39); return; }   /* "Your car's not running, speedy!" */
     dialog_load(&neg, 19);
     negotiating = N_TYPE;
     neg_start = SDL_GetTicks();
@@ -263,6 +267,13 @@ static void mouse_move(Game *g, int x, int y)
 static void step(Game *g)
 {
     Player *p = &g->player;
+    if (race_pending >= 0 && !g->msg) {                         /* 9e3c: message first, then be82 */
+        static const int amount[6] = { 0, 10, 50, 25, 150, 0 };
+        int t = race_pending;
+        race_pending = -1;
+        race_start(g, rival, t, race_stake, amount[race_stake]);
+        return;
+    }
     double moved = (SDL_GetTicks() - move_start) * DRIVE_SPEED / 1000.0;
     if (state == S_ARRIVING && moved >= park_x + car_w) {
         state = S_PARKED;

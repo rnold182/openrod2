@@ -28,7 +28,7 @@ It reads the original game's files at runtime, so you need your own copy of the 
 ## Running
 
 Put the original files (`SR.EXE`, `LIB1`–`LIB3`, `*.MUS`, `MSR.SND`, `SR2_*`) in the repository root
-(or next to the executable), then run `build\streetrod2.exe`.
+(or next to the executable), then run `build\openrod2.exe`.
 
 ## Playing
 

@@ -30,6 +30,7 @@ int  rivals_king_chance(const Player *p, int current);      /* 1001:9802 */
 int  rivals_pick_arrival(const Player *p, int king_chance);
 void rivals_meet(Player *p, int r);                         /* 1001:9a02 (the bookkeeping part) */
 int  rivals_accepts_bet(const Player *p, int r, int stake); /* 1001:9c8e, stake 0..5 */
+extern int rivals_always_agree;                             /* cheat "agree" */
 
 int  model_quality(const Player *p, int model);             /* 1001:c866, model < 0 = your car */
 int  model_max_speed(const Player *p, int model);           /* 1001:c6f6, model < 0 = your car */

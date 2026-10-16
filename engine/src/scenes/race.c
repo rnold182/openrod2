@@ -22,7 +22,6 @@
 #define START_SEG  200                     /* DS:9ae2 for a drag race */
 #define FINISH_SEG 0x17c                   /* DS:a2aa */
 #define REDLINE    0x1644
-#define HORIZON    66                      /* screen row of the road's vanishing point */
 #define VIEW_BOTTOM 100                    /* the dashboard starts here */
 
 static int16_t ds16(uint16_t off) { return (int16_t)exe_ds_u16(off); }
@@ -95,7 +94,7 @@ static void pick_band(Engine *e, int force)
 
 /* ------------------------------------------------------------------ race state */
 
-enum { R_READY, R_LIGHTS, R_GO, R_RACING, R_DONE };
+enum { R_STAGE, R_READY, R_GO, R_RACING, R_DONE };
 
 static Game *G;
 static Car *you;
@@ -116,6 +115,7 @@ static int gas, brake, shift_pressed, shift_latch;
 static int blowout_at;                  /* DS:a10a: worn tires give out here */
 static char ready_text[32];
 static int autodrive;
+static int starter_slide, flag_dropped;   /* DS:a2b4, ad0a */
 
 void race_autodrive(int on) { autodrive = on; }
 
@@ -289,6 +289,7 @@ static void finish_line(void)            /* 1001:b1b2 */
 
 static void race_frame(void)
 {
+    if (frame_distance(me.speed) > 0) starter_slide += 4;               /* 0dcb:1774 */
     if (blowout_at && pos >= blowout_at && !result) { result = RES_TIRES; return; }
     opp_engine();
     sub += frame_distance(me.speed);
@@ -450,10 +451,12 @@ static void enter(Game *g)
         int len = FINISH_SEG - START_SEG;
         blowout_at = (int)SDL_rand(len >> 2) + (len >> 1) + START_SEG;
     }
-    state = R_READY;
+    state = R_STAGE;                                                    /* 8d9e waits 0xf + 0x19 ticks first */
     phase_start = last_frame = SDL_GetTicks();
-    wait_ticks = 0x6e + (int)SDL_rand(0x67);
-    SDL_strlcpy(ready_text, exe_ds_str(0x4ff4), sizeof ready_text);    /* "Get ready !" */
+    wait_ticks = 0xf + 0x19;
+    ready_text[0] = 0;
+    starter_slide = flag_dropped = 0;
+    game_message_clear(g);
     game_set_palette(g, PAL_INCAR);
     sound_music_duck(opt_tune_music_duck);                              /* rebuild: hear the engine */
     engine_sound(1);
@@ -464,8 +467,11 @@ static void leave_race(void)
     engine_sound(0);
     sound_music_duck(0);
     G->player.time_actions += 0x444;
-    /* b584: without a car (pink slip lost) it's home on foot, otherwise back to Burger's. */
-    game_set_scene(G, player_car(&G->player) ? &scene_street : &scene_garage);
+    /* b584's answer: a pink-slip race or a broken car means home (towed, or on foot); otherwise
+     * it's back to Burger's. */
+    int home = !player_car(&G->player) || stake == 5 || result == RES_ENGINE || result == RES_TRANS ||
+               result == RES_TIRES || !car_runnable(player_car(&G->player), 1);
+    game_set_scene(G, home ? &scene_garage : &scene_street);
 }
 
 static void key(Game *g, SDL_Scancode sc, SDL_Keycode k)
@@ -504,11 +510,20 @@ static void frame(void)
     read_controls();
     if (frame_no % 3 == 0 && state != R_DONE) engine_step();
     switch (state) {
+    case R_STAGE:
+        if (me.speed > 0) { result = RES_JUMPED; break; }
+        if (game_ticks_since(phase_start) >= wait_ticks) {             /* 8ef4 state 0 */
+            state = R_READY;
+            phase_start = SDL_GetTicks();
+            wait_ticks = 0x6e + (int)SDL_rand(0x67);
+            SDL_strlcpy(ready_text, exe_ds_str(0x4ff4), sizeof ready_text);    /* "Get ready !" */
+        }
+        break;
     case R_READY:
-    case R_LIGHTS:
         if (me.speed > 0) { result = RES_JUMPED; break; }              /* rolled before the flag */
         if (game_ticks_since(phase_start) >= wait_ticks) {
             state = R_GO;
+            flag_dropped = 1;
             SDL_strlcpy(ready_text, exe_ds_str(0x5000), sizeof ready_text);    /* "Go !" */
         }
         break;
@@ -547,37 +562,56 @@ static void result_screen(void)        /* 1001:b256: dialog 23 */
     }
 }
 
-/* A picture scaled to w x h with its bottom centre at (cx, bottom), clipped to the windshield. */
-static void blit_scaled(const Image *im, int cx, int bottom, int w, int h)
+/* The windshield view uses the original's projection (0dcb:062c / 0684): a point at lateral position
+ * `lat` and height `h`, d units ahead (d = distance in 1/8 segment + 4), sits at
+ *   x = 160 - (camera - lat) * 4 / d,   y = 60 + (h - 1900) * 4 / d.
+ * The road surface is at height 2000, its edges at 1500 and 3300, the centre line at 2400; you
+ * drive at 2560 (DS:a564), the opponent at 2200 (a9cc). The view is clipped to rows 18..101. */
+#define CAM_X     0xa00
+#define CAM_H     0x76c
+#define GROUND    2000
+#define OPP_X     2200
+#define CLIP_TOP  0x12
+#define CLIP_LAST 0x65
+
+static int proj_x(int d, int lat) { return 160 - (CAM_X - lat) * 4 / (d ? d : 1); }
+static int proj_y(int d, int h) { return (h - CAM_H) * 4 / (d ? d : 1) + 60; }
+
+/* Copy part of a picture (colour 0 transparent for sprites), clipped to the view. */
+static void blit_clip(const Image *im, int sx, int sy, int w, int h, int dx, int dy)
 {
-    if (!im || w <= 0 || h <= 0) return;
+    if (!im) return;
     Video *v = &G->video;
-    int x0 = cx - w / 2, y0 = bottom - h;
     for (int y = 0; y < h; y++) {
-        int sy = y0 + y;
-        if (sy < 18 || sy >= VIEW_BOTTOM) continue;
-        int iy = y * im->h / h;
+        int ty = dy + y, iy = sy + y;
+        if (ty < CLIP_TOP || ty > CLIP_LAST || iy < 0 || iy >= im->h) continue;
         for (int x = 0; x < w; x++) {
-            int sx = x0 + x;
-            if (sx < 0 || sx >= SCREEN_W) continue;
-            uint8_t c = im->pixels[iy * im->w + x * im->w / w];
+            int tx = dx + x, ix = sx + x;
+            if (tx < 0 || tx >= SCREEN_W || ix < 0 || ix >= im->w) continue;
+            uint8_t c = im->pixels[iy * im->w + ix];
             if ((im->flags & IMAGE_SPRITE) && !c) continue;
-            v->fb[sy * SCREEN_W + sx] = c;
+            v->fb[ty * SCREEN_W + tx] = c;
         }
     }
 }
 
-/* Perspective: something z segments ahead sits on row HORIZON + PERSP_A / (z + PERSP_C), at
- * scale PERSP_C / (z + PERSP_C) of its size right in front of the bumper. */
-#define PERSP_A 63.6
-#define PERSP_C 1.44
-
-static int project(int ahead, double *scale)
+/* A picture scaled into w x h at (dx, dy), clipped to the view (the original keeps pre-scaled copies). */
+static void blit_scaled(const Image *im, int dx, int dy, int w, int h)
 {
-    double z = ahead / 64.0;
-    if (z < -1.0) z = -1.0;
-    *scale = PERSP_C / (z + PERSP_C);
-    return HORIZON + (int)(PERSP_A / (z + PERSP_C));
+    if (!im || w <= 0 || h <= 0) return;
+    Video *v = &G->video;
+    for (int y = 0; y < h; y++) {
+        int ty = dy + y;
+        if (ty < CLIP_TOP || ty > CLIP_LAST) continue;
+        int iy = y * im->h / h;
+        for (int x = 0; x < w; x++) {
+            int tx = dx + x;
+            if (tx < 0 || tx >= SCREEN_W) continue;
+            uint8_t c = im->pixels[iy * im->w + x * im->w / w];
+            if ((im->flags & IMAGE_SPRITE) && !c) continue;
+            v->fb[ty * SCREEN_W + tx] = c;
+        }
+    }
 }
 
 static uint8_t reg(int ega) { int r = ui_find_register(&G->video, ega); return (uint8_t)(r < 0 ? 0 : r); }
@@ -587,68 +621,87 @@ static void draw_road(void)
     Video *v = &G->video;
     uint8_t asphalt = reg(8), white = reg(15), red = reg(4), yellow = reg(14);
     double travelled = pos * 64.0 + sub;
-    for (int y = HORIZON + 1; y < VIEW_BOTTOM; y++) {
-        double z = PERSP_A / (y - HORIZON) - PERSP_C;                  /* segments ahead */
-        double s = PERSP_C / (z + PERSP_C);
-        int half = (int)(210 * s);
-        int cx = 160 + (int)(70 * s);                                  /* we sit in the right lane */
-        int kerb = (int)(8 * s) + 1;
-        int stripe = ((int)floor((travelled / 64.0 + z) * 1.5)) & 1;
-        video_fill(v, cx - half - kerb, y, kerb, 1, stripe ? white : red);
-        video_fill(v, cx + half, y, kerb, 1, stripe ? white : red);
-        video_fill(v, cx - half, y, 2 * half, 1, asphalt);
-        if (stripe) video_fill(v, cx - (int)(2 * s), y, (int)(4 * s) + 1, 1, yellow);   /* centre line */
-        double at = travelled / 64.0 + z;                              /* start and finish lines */
-        if (fabs(at - (START_SEG + 1)) < 0.12 || fabs(at - FINISH_SEG) < 0.12)
-            video_fill(v, cx - half, y, 2 * half, 1, white);
+    for (int y = 61; y <= CLIP_LAST; y++) {
+        double d = (GROUND - CAM_H) * 4.0 / (y - 60);                  /* the row's distance */
+        double ahead = (d - 4) * 8;                                    /* in 1/64 segment */
+        int xl = (int)(160 - (CAM_X - 1500) * 4 / d), xr = (int)(160 - (CAM_X - 3300) * 4 / d);
+        int xc = (int)(160 - (CAM_X - 2400) * 4 / d), kerb = (int)(60 * 4 / d) + 1;
+        double at = (travelled + ahead) / 64.0;                        /* segment under this row */
+        int stripe = (int)floor(at) & 1;
+        video_fill(v, xl - kerb, y, kerb, 1, stripe ? white : red);
+        video_fill(v, xr, y, kerb, 1, stripe ? white : red);
+        video_fill(v, xl, y, xr - xl, 1, asphalt);
+        if ((int)floor(at * 2) & 1) video_fill(v, xc - kerb / 4, y, kerb / 2 + 1, 1, yellow);
+        if (fabs(at - (START_SEG + 1)) < 0.1 || fabs(at - FINISH_SEG) < 0.1)
+            video_fill(v, xl, y, xr - xl, 1, white);                   /* start and finish lines */
     }
+}
+
+/* 0dcb:af98: which picture of the opponent shows, from how far ahead (1/64 segment) and which side:
+ * 0 side view through the side window, 1 big rear view ahead to one side, 2 medium rear view,
+ * 3..8 the medium view smaller and smaller, 9.. behind you (the mirror, not drawn yet). */
+static int opponent_kind(int ahead, int side)
+{
+    if (ahead >= 0x3c0) return -1;
+    if (ahead >= 0x80) { int k = ((ahead + 0x40) >> 7) + 2; return k > 8 ? 8 : k; }
+    if (ahead < -0x38) return ((0x80 - ahead) >> 7) + 8;
+    if (ahead < 0x41) {
+        if (SDL_abs(side) < 0xb4) return 2;
+        if (ahead < 0) return 9;
+        return side < 0 ? 0 : 2;
+    }
+    return side < -0xb4 ? 1 : 3;
 }
 
 static void draw_opponent(void)
 {
     Player *p = &G->player;
     int set = sprite_set(rival_model(p, rival));
-    uint16_t entry = (uint16_t)(0xaa9e + 14 * set);
-    (void)entry;
-    const uint8_t *tbl = data_race_sprites() + 14 * set;               /* DS:aa9e: side, rear views */
-    int side = tbl[0] | tbl[1] << 8, rear = tbl[2] | tbl[3] << 8;
+    const uint8_t *tbl = data_race_sprites() + 14 * set;               /* DS:aa9e: side, big and medium rear */
+    int side_pic = tbl[0] | tbl[1] << 8, big_pic = tbl[2] | tbl[3] << 8, med_pic = tbl[4] | tbl[5] << 8;
     int ahead = (opp_pos - pos) * 64 + opp_sub - sub;
+    int kind = opponent_kind(ahead, OPP_X - CAM_X);
+    if (kind < 0 || kind >= 9) return;
+    int d = SDL_abs(ahead) >> 3;
+    if (kind == 0) d += 0x10;
+    d += 4;
+    int x = proj_x(d, OPP_X), y = proj_y(d, GROUND);
     game_set_paint(G, rival == KING ? g_models[rival_model(p, rival)].colour : rival_get(p, rival, 0xa));
-    if (ahead < 40) {
-        if (ahead > -120 && side) {                                    /* alongside: through the left window */
-            const Image *im = game_picture(G, side);
-            if (im) blit_scaled(im, im->w / 2 - 30 + ahead / 3, VIEW_BOTTOM + 4, im->w, im->h);
-        }
-        return;
+    if (kind == 0) {                                                   /* the car beside you, cut by the pillar */
+        const Image *im = game_picture(G, side_pic);
+        if (!im) return;
+        int sx = im->w - x + 0x40;
+        if (sx < 0) sx = 0;
+        blit_clip(im, sx, 0, im->w - sx, im->h, 0, y);
+    } else if (kind == 1) {
+        const Image *im = game_picture(G, big_pic);
+        if (im) blit_clip(im, 0, 0, im->w, im->h, x - im->w, y - im->h + 0x11);
+    } else {
+        const Image *im = game_picture(G, med_pic);
+        if (!im) return;
+        double scale = kind == 2 ? 1.0 : 12.0 / d;                     /* stands in for the pre-scaled copies */
+        if (scale > 1.0) scale = 1.0;
+        int w = (int)(im->w * scale), h = (int)(im->h * scale);
+        if (y > 0x65) y = 0x65;
+        blit_scaled(im, x - w / 2, y - h, w, h);
     }
-    double s;
-    int bottom = project(ahead, &s);
-    const Image *im = game_picture(G, rear);
-    if (!im) return;
-    int cx = 160 - (int)(70 * s);                                      /* the left lane */
-    blit_scaled(im, cx, bottom, (int)(im->w * s * 1.6), (int)(im->h * s * 1.6));
 }
 
+/* 0dcb:a746: the starter stands close by on the left (torso 0x816, arm frames 0x817); his arm
+ * comes down at "Go", and once you roll he slides out of the window, 8 pixels a frame. */
 static void draw_starter(void)
 {
-    int ahead = (START_SEG + 1 - pos) * 64 - sub + 40;
-    if (ahead < 10) return;
-    double s;
-    int bottom = project(ahead, &s);
-    const Image *girl = game_picture(G, state < R_GO ? 0x816 : 0x817);
-    if (!girl) return;
-    int w = girl->w, fw = state < R_GO ? w : 48;
-    if (state >= R_GO) {                                               /* flag down: frames of 0x817 */
-        static Image frame_img;
-        static uint8_t buf[48 * 82];
-        int f = SDL_min(2, (int)(game_ticks_since(phase_start) / 6) % 3);
-        for (int y = 0; y < girl->h && y < 82; y++)
-            memcpy(buf + y * 48, girl->pixels + y * girl->w + f * 48, 48);
-        frame_img = (Image){ 48, girl->h < 82 ? girl->h : 82, girl->flags, buf };
-        blit_scaled(&frame_img, 160, bottom, (int)(48 * s * 1.4), (int)(frame_img.h * s * 1.4));
-        return;
+    int shift = (starter_slide & ~3) * 2;
+    if (shift > 0x58) return;
+    const Image *torso = game_picture(G, 0x816), *arm = game_picture(G, 0x817);
+    int x = 8 - shift, frame_x = flag_dropped ? 0x30 : 0;
+    for (int part = 0; part < 2; part++) {                             /* clipped at x = 8 like the original */
+        const Image *im = part ? arm : torso;
+        if (!im) continue;
+        int sx = part ? frame_x : 0, dx = x + part * 0x30, w = 0x30;
+        if (dx < 8) { sx += 8 - dx; w -= 8 - dx; dx = 8; }
+        if (w > 0) blit_clip(im, sx, 0, w, 0x52, dx, 0x12);
     }
-    blit_scaled(girl, 160, bottom, (int)(fw * s * 1.4), (int)(girl->h * s * 1.4));
 }
 
 static void needle(int cx, int cy, double deg, int r0, int r1, uint8_t colour)
