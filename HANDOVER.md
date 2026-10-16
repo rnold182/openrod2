@@ -83,7 +83,7 @@ OpenRod 2 is a from-scratch rebuild of **Street Rod 2** (1990, DOS) in plain C +
   the starter is still there disqualifies you (msg 0x78), as in the original.
 
 ## Next steps (in this order)
-1. **Race aftermath.** The King losing (1001:a51c), and the opponent's small rear views: the original uses pre-scaled copies (scale bytes from SR2_DATA via 37ce's a0ea calls, DS:aaa4 records), the rebuild still scales them by 12/d (the mirror's front views 10..12 too).
+1. **Race aftermath.** The King losing (1001:a51c), and the opponent's small rear views: the original uses pre-scaled copies (scale bytes from SR2_DATA via 37ce's a0ea calls, DS:aaa4 records), the rebuild still scales them by 12/d (the mirror's front views 10..12 too). Lead: 2a21:6e6a reads them at startup into DS:8e3c and points each record's +6 / +8 / +0xc there (0x42 bytes per set: +0, +0x16, +0x2c; the bytes used are +9..+11 of each).
 2. **The gas station.** Garage "Wanna tank?" hotspot id 15, mode 3, 3925:2104, dialog 22.
 3. **Grudge Night.** Id 17, Wednesdays only (63e0() % 7 == 2), $30, fuel > 23, mode 4, 3925:1970 (race types 2/4 use tables 60be/61a6/6572).
 4. **Street details.** Cars driving in and out with their motor sound (2a21:89fa, 1001:20a0/2176), the carhop (2a21:945a, picture 0x458), rival taunts (1001:9432).
