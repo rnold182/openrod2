@@ -229,8 +229,35 @@
   (colour 5, posts every other segment from DS:96f4); side flag 0x10 rock piles (51e0, kinds 7/8,
   tables 7ed0/7e9a/7ece); road flags 4 / 0x1000 put kind 7 / 0x14 on the road at 665a * width / 16,
   and in the nearest segment 69d4 checks them against the car's corners (DS:bb88 / add4).
-- Not ported yet: the mirror (0ce4/379e and the Aqueduct's 1b02/9ce8/57a6/a92a), the town view (bit 0
-  roads, 52e2 picture objects).
+- Not ported yet: the town view (bit 0 roads, 52e2 picture objects, 4e70).
+- The rear-view mirror (11fc after the windshield; rebuild road.c mirror_* / aq_mirror):
+  - Projection 0ce4 with 06ba / 070e: x = 0x118 - (cam - (lat + turn*d/4)) / d, y = (rise*d - eye +
+    h) / d + 0x24 (a quarter of the scale), turn = road heading - a56a, rise = height - a56c (the
+    other way round); slices 0 at d 8, then 8 + s/8, +8 .. 32 + s/8, 40, 48, 56, from segment seg
+    backwards (Mulholland clamps slice 0's turn to +-0x46 past +-0x3c); the terrain rows read
+    forwards (seg, seg+1, ..) and the 0x79e row array (a7ea) is written twice per slice (quirks).
+  - 36d6 clips to x 0xf0..0x13f, rows 0x16..0x2a. 57a6: picture 2005 (glass and frame, put on the
+    spare page at (0xe8, 0x66) by 370a) copied to (0xf0, 0x14) and 16 x 2 of it under the stalk at
+    (0x110, 0x12); the horizon strip 2063 (Mulholland 2037, 370a(1) at (0xe8, 0x81)), 2 rows (0x14)
+    at the farthest ground row - 2 (- 10); the Aqueduct has stars instead (85a0: DS:7f8e 9 points
+    colour 2, 7fb2 3 points colour 5, x - heading*2 % 320 / 4).
+  - 5aee paints slices 7..1 like 6a32 does ahead, every array pointer one slice in: the flags of
+    segment seg - 1 - k, road strips 4852 (grass from x 0xf0, rows < 0x2b, dash width DS:7e52[13 + k],
+    finish white when a55e >= 0x169 / Mulholland 0x3ad), objects only for k < 7 at size slice
+    (k >> 1) + 7, gantries (drag) at slice k + 5, Mulholland hillsides, bridges (5404 with
+    (seg - k, k < 4)) and guard rail; then the opponent; 5a2c draws the frame's sides (x 0xf0 / 0x13f
+    colour 2, 0xf1 / 0x13e colour 4).
+  - The starter (a85c, a92a in the Aqueduct) once she has left the window (a7ac clear) at segment
+    9e6a (a746 keeps it at min(you + 1, him) while she's there): pictures DS:9a2a (a5aa: 2000, 2022,
+    2057, 2058; Aqueduct 2078..2081) by slice (k - 1 < 3 ? / 2 : - 1, at most 3, none at 6), her
+    feet always at row 0x27 (a85c subtracts y - 0x2a), in the Aqueduct on the stripe's left edge.
+  - The opponent (af98 kinds 9..12): the front picture (DS:aa9e record +0x0a, 40 x 18), 10..12
+    pre-shrunk copies (record +0x0c scale bytes, unknown: the rebuild scales 12/d), at 06ba(d, a9cc,
+    10 - (a56a - his heading)), 070e(d, 2000, his height - yours), bottom centre.
+  - Aqueduct: 1b02 projects 8 slices (d 2 first) with the saved wall offsets, turn = -a56a, the
+    middle at +a56a; 9ce8 turns them round the mirror's far middle with the windshield's tilt and
+    runs 905c with b194 = 7 (no collisions, bushes at size (slice - 1) / 2 + 6), table read from the
+    reversed copy 628e (segments seg - 8 + k, then seg - 1 - k). Checked against DOSBox screenshots.
 
 ## Steering, collisions and Mulholland Drive (rebuild race.c)
 - Setup 1001:bc88: drag 200..0x17c, Mulholland 0x172..0x3c0 (Aqueduct 8..0x156); tire wear 300/200

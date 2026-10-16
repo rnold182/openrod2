@@ -45,6 +45,10 @@ typedef struct {
     void (*draw_opponent)(void);
     int speed;              /* a100: your speed (the Aqueduct's middle stripe slows you) */
     int autopilot;          /* DS:9730 / 1f82: demo or autodrive (no sliding down the Aqueduct's walls) */
+    /* The rear-view mirror (1dcb:0ce4 / 5aee, Aqueduct 1b02 / 9ce8). */
+    void (*draw_opponent_mirror)(void);   /* af98 for kinds 9..12, drawn with road_mproj_* */
+    int starter_gone;       /* DS:a7ac clear: the starter has left the window and shows in the mirror */
+    int starter_seg;        /* DS:9e6a: where she stands */
 } RoadView;
 
 /* What the last frame found in front of the car (DS:bb88 / add4: -1 left, 1 right, 0 none). */
@@ -56,7 +60,16 @@ extern RoadHits g_road_hits;
 int road_proj_x(const RoadView *rv, int d, int lat, int turn);
 int road_proj_y(const RoadView *rv, int d, int h, int rise);
 
-/* 1dcb:07e4 + 3e66 + 6a32: sky, hills, road and everything beside it, back to front. */
+/* 1dcb:06ba / 070e: the same for the rear-view mirror (a quarter of the scale, centred at x 0x118,
+ * y 0x24); `turn` / `rise` are taken the other way round by the callers. */
+int road_mproj_x(const RoadView *rv, int d, int lat, int turn);
+int road_mproj_y(const RoadView *rv, int d, int h, int rise);
+/* A picture scaled to w x h, the middle of its bottom edge at (cx, by), turned `angle` degrees,
+ * clipped to the part being drawn (the windshield or the mirror). */
+void road_sprite(const Image *im, int cx, int by, int w, int h, int angle);
+
+/* 1dcb:07e4 + 3e66 + 6a32: sky, hills, road and everything beside it, back to front, then the
+ * rear-view mirror (0ce4 + 5aee). */
 void road_draw(Game *g, const RoadView *rv);
 
 /* ------------------------------------------------------------------ the Aqueduct (add6 8) */

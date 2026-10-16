@@ -431,10 +431,10 @@ static void project(const RoadView *rv)                /* 1dcb:07e4 */
 
 /* ------------------------------------------------------------------ drawing primitives */
 
-#define CLIP_X0 0                                      /* DS:7e12..7e18 (1dcb:36f0) */
-#define CLIP_Y0 0x12
-#define CLIP_Y1 0x65
-#define CLIP_X1 0x13f
+/* DS:7e12..7e18: the windshield (1dcb:36f0) or the mirror (36d6). */
+static int CLIP_X0 = 0, CLIP_Y0 = 0x12, CLIP_Y1 = 0x65, CLIP_X1 = 0x13f;
+static void clip_view(void) { CLIP_X0 = 0; CLIP_Y0 = 0x12; CLIP_Y1 = 0x65; CLIP_X1 = 0x13f; }        /* 36f0 */
+static void clip_mirror(void) { CLIP_X0 = 0xf0; CLIP_Y0 = 0x16; CLIP_Y1 = 0x2a; CLIP_X1 = 0x13f; }   /* 36d6 */
 
 static Video *V;
 static uint8_t colour;
@@ -715,21 +715,23 @@ static void road_strip(const RoadView *rv, int i)
     }
 }
 
+static int dash_w(int i) { return (int16_t)exe_ds_u16((uint16_t)(0x7e52 + 2 * i)); }   /* *DS:96ee */
+
 /* 1dcb:55ce: a gantry across the road, its sign by the flag bits 0xf000. */
-static void gantry(int i, int top, int ground, unsigned bits, int f)
+static void gantry_at(int l, int r, int w, int top, int ground, int size, unsigned bits, int f)
 {
-    int w = (int16_t)exe_ds_u16((uint16_t)(0x7e52 + 2 * i));
     for (int k = w + 1; k != 0; k--) {
         colour = 10;
-        vline(xl[i] - k, top, ground);
-        vline(xr[i] + k, top, ground);
-        hline(xl[i], xr[i], k + top - 1);
+        vline(l - k, top, ground);
+        vline(r + k, top, ground);
+        hline(l, r, k + top - 1);
     }
-    int mid = (xr[i] + xl[i]) >> 1;
-    if (bits & 0x1000) object(mid, top, i, 1, 0xd, 0);
+    int mid = (r + l) >> 1;
+    if (bits & 0x1000) object(mid, top, size, 1, 0xd, 0);
     else if (bits & 0x2000) { /* a picture sign from the street sheet (52e2): town only */ }
-    else if (!(f & 1)) object(mid, top, i, 1, bits & 0x4000 ? 0xc : 0xe, 0);
+    else if (!(f & 1)) object(mid, top, size, 1, bits & 0x4000 ? 0xc : 0xe, 0);
 }
+static void gantry(int i, int top, int ground, unsigned bits, int f) { gantry_at(xl[i], xr[i], dash_w(i), top, ground, i, bits, f); }
 
 /* ------------------------------------------------------------------ Mulholland's extras */
 
@@ -807,37 +809,47 @@ static int hits_car(int x, int w, int y)
 static int rail_start;                                 /* DS:96f4 */
 RoadHits g_road_hits;
 
+/* 1dcb:5404: a bridge's railings between a nearer (1..4) and a farther (5..8) cross-section,
+ * `w` posts thick (DS:96ee); `odd` / `near` pick which diagonal is drawn. */
+static void bridge_sides(int p1, int p2, int p3, int p4, int p5, int p6, int p7, int p8, int segno, int near, int w)
+{
+    colour = 10;
+    int odd = (segno + 0xe) % 2 != 0 && near;
+    for (int k = w + 1; k != 0; k--) {
+        line(p1 - k, p3, p1 - k, p4);
+        line(p2 + k, p3, p2 + k, p4);
+        line(p1, p3 + k - 1, p2, p3 + k - 1);
+        int a, b;
+        if (!odd) { line(p1 - k, p4, p5 - k, p7); a = p4; b = p7; }
+        else { line(p1 - k, p3, p5 - k, p8); a = p3; b = p8; }
+        line(p2 + k, a, p6 + k, b);
+        line(p1 - k, p3, p5 - k, p7);
+        line(p2 + k, p3, p6 + k, p7);
+        line(p1 - k, p4, p5 - k, p8);
+        line(p2 + k, p4, p6 + k, p8);
+    }
+}
+
+static void bridge_start(int l, int r, int top, int ground, int w)    /* 1dcb:555e */
+{
+    colour = 10;
+    for (int k = w + 1; k != 0; k--) {
+        line(l - k, top, l - k, ground);
+        line(r + k, top, r + k, ground);
+        line(l, top + k - 1, r, top + k - 1);
+    }
+}
+
 /* 6a32's last part for Mulholland: bridge railings (5404 / 555e) and the guard rail. */
 static void mull_rails(const RoadView *rv, int i, int f, int rf)
 {
     int seg = rv->seg, w = (int16_t)exe_ds_u16((uint16_t)(0x7e52 + 2 * i));
     colour = 10;
-    if ((f & 0x80) && (F(seg + i - 1) & 0x80)) {         /* 5404: the bridge's sides */
-        int p1 = xl[i - 1], p2 = xr[i - 1], p3 = y19[i - 1] * 4 - gy[i - 1] * 3, p4 = gy[i - 1];
-        int p5 = xl[i], p6 = xr[i], p7 = y19[i] * 4 - gy[i] * 3, p8 = gy[i];
-        int odd = ((seg - i) + 0xe) % 2 != 0 && i < 7;
-        for (int k = w + 1; k != 0; k--) {
-            line(p1 - k, p3, p1 - k, p4);
-            line(p2 + k, p3, p2 + k, p4);
-            line(p1, p3 + k - 1, p2, p3 + k - 1);
-            int a, b;
-            if (!odd) { line(p1 - k, p4, p5 - k, p7); a = p4; b = p7; }
-            else { line(p1 - k, p3, p5 - k, p8); a = p3; b = p8; }
-            line(p2 + k, a, p6 + k, b);
-            line(p1 - k, p3, p5 - k, p7);
-            line(p2 + k, p3, p6 + k, p7);
-            line(p1 - k, p4, p5 - k, p8);
-            line(p2 + k, p4, p6 + k, p8);
-        }
-    }
-    if ((f & 0x80) && !(F(seg + i + 1) & 0x80)) {        /* 555e: where it starts */
-        int top = y19[i] * 4 - gy[i] * 3;
-        for (int k = w + 1; k != 0; k--) {
-            line(xl[i] - k, top, xl[i] - k, gy[i]);
-            line(xr[i] + k, top, xr[i] + k, gy[i]);
-            line(xl[i], top + k - 1, xr[i], top + k - 1);
-        }
-    }
+    if ((f & 0x80) && (F(seg + i - 1) & 0x80))           /* 5404: the bridge's sides */
+        bridge_sides(xl[i - 1], xr[i - 1], y19[i - 1] * 4 - gy[i - 1] * 3, gy[i - 1],
+                     xl[i], xr[i], y19[i] * 4 - gy[i] * 3, gy[i], seg - i, i < 7, w);
+    if ((f & 0x80) && !(F(seg + i + 1) & 0x80))          /* 555e: where it starts */
+        bridge_start(xl[i], xr[i], y19[i] * 4 - gy[i] * 3, gy[i], w);
     if ((rf & 0x8000) && !(f & 0x80)) {                  /* the guard rail on the drop side */
         if (((rail_start - i) - seg + 0xe) % 2 != 0) {
             int a = -0x1e / (i + 1) + xsr[i - 1];
@@ -855,10 +867,14 @@ static void mull_rails(const RoadView *rv, int i, int f, int rf)
 /* ------------------------------------------------------------------ the painter (1dcb:6a32) */
 
 static void aq_draw(const RoadView *rv);
+static void mirror_draw(const RoadView *rv);
+static Game *G_;
 
 void road_draw(Game *g, const RoadView *rv)
 {
     V = &g->video;
+    G_ = g;
+    clip_view();
     load_shapes(g);
     if (rv->race == RACE_AQUEDUCT) { aq_draw(rv); return; }
     make_page(g, rv->race);
@@ -949,9 +965,13 @@ void road_draw(Game *g, const RoadView *rv)
         if (rv->opp_seg - i == seg && rv->draw_opponent) rv->draw_opponent();
     }
     if (seg == rv->opp_seg && rv->draw_opponent) rv->draw_opponent();
+    mirror_draw(rv);
 }
 
 /* ================================================================== the Aqueduct (add6 8) */
+static void aq_mirror(const RoadView *rv);
+static const Image *starter_pic(const RoadView *rv, int p);
+void road_sprite(const Image *im, int cx, int by, int w, int h, int angle);
 
 
 /* 1dcb:33ac (called from 24d8): the channel's table. */
@@ -1330,7 +1350,7 @@ static int wall_patch(int k, unsigned f, int *pt)
 
 /* 1dcb:8b5c: a box from its far face (0..3: bottom left, bottom right, top left, top right) and
  * near face (4..7); kind 1 (pillars) checks its foot against the car, kind 0 (blocks) its top. */
-static void box(int *p, int kind)
+static void box(int *p, int kind, int main)
 {
     for (int k = 0; k < 8; k++) rot(p[2 * k], p[2 * k + 1], &p[2 * k], &p[2 * k + 1]);
 #define X(i) p[2 * (i)]
@@ -1343,7 +1363,7 @@ static void box(int *p, int kind)
         int q[8] = { X(2), Y(2), X(3), Y(3), X(7), Y(7), X(6), Y(6) };
         n = clip(q, 4, out);
         if (n > 0) {
-            if (kind == 0) g_aq.hits |= bottom_hit(out, n);
+            if (kind == 0 && main) g_aq.hits |= bottom_hit(out, n);
             poly(out, n, 5, EDGE(2, 7));
         }
     }
@@ -1351,20 +1371,23 @@ static void box(int *p, int kind)
     if (kind == 1) {
         int q[8] = { X(0), Y(0), X(1), Y(1), X(5), Y(5), X(4), Y(4) };
         n = clip(q, 4, out);
-        if (n > 0) g_aq.hits |= bottom_hit(out, n);
+        if (n > 0 && main) g_aq.hits |= bottom_hit(out, n);
     }
 #undef X
 #undef Y
 #undef EDGE
 }
 
-static void aq_paint(const RoadView *rv)
+/* n = 14 for the windshield, 7 for the mirror (DS:b194); the mirror reads the reversed table (628e). */
+static void aq_paint(const RoadView *rv, int n)
 {
-    int seg = rv->seg, out[48];
+    int seg = rv->seg, out[48], main = n == 14;
+#define TF(k) (main ? T(seg + 14 - (k)) : T(seg - 8 + (k)))
+#define TB(j) (main ? T(seg + (j)) : T(seg - 1 - (j)))
     int l42 = R_lx[0], l40 = R_ly[0], lb2 = R_rx[0], lba = R_ry[0];
-    int l3e = R_lx[14], l1e = R_ly[14], la0 = R_rx[14], la8 = R_ry[14];
+    int l3e = R_lx[n], l1e = R_ly[n], la0 = R_rx[n], la8 = R_ry[n];
     int l46 = R_wlx[0], l44 = R_wly[0], l50 = R_wrx[0], l98 = R_wry[0];
-    int la = R_wlx[14], l10 = R_wly[14], l22 = R_wrx[14], l28 = R_wry[14];
+    int la = R_wlx[n], l10 = R_wly[n], l22 = R_wrx[n], l28 = R_wry[n];
     if (g_aq.bank) {                                   /* reach past the screen's corners */
         l3e = l3e * 4 - l42 * 3; l1e = l1e * 4 - l40 * 3;
         la0 = la0 * 4 - lb2 * 3; la8 = la8 * 4 - lba * 3;
@@ -1373,7 +1396,7 @@ static void aq_paint(const RoadView *rv)
     }
     if (g_aq.bank == 0) {
         colour = 5;                                    /* a0e6: the concrete */
-        for (int y = SDL_max(A_fy[14], CLIP_Y0); y <= CLIP_Y1; y++) hline(CLIP_X0, CLIP_X1, y);
+        for (int y = SDL_max(A_fy[n], CLIP_Y0); y <= CLIP_Y1; y++) hline(CLIP_X0, CLIP_X1, y);
         int q[8] = { la, l10, l46, l44, l42, l40, 0, l40 };
         fill4(q, 5, 5, out);
         int r[8] = { l22, l28, l50, l98, lb2, lba, 0x13f, lba };
@@ -1397,13 +1420,13 @@ static void aq_paint(const RoadView *rv)
     rot(st_fr, st_fy, &sgx, &sgy);
     rot(st_nl, st_ny, &snx, &sny);
     rot(st_nr, st_ny, &sox, &soy);
-    for (int k = 0; k < 14; k++) {
-        unsigned f = T(seg + 14 - k);
+    for (int k = 0; k < n; k++) {
+        unsigned f = TF(k);
         if (f & 0x400) {                               /* the finish line */
             int q[8] = { R_lx[k], R_ly[k], R_rx[k], R_ry[k], R_rx[k + 1], R_ry[k + 1], R_lx[k + 1], R_ly[k + 1] };
             fill4(q, 15, 15, out);
         }
-        if ((f & 1) && A_fy[14] < A_fy[14 - k]) {      /* a joint across the channel */
+        if ((f & 1) && A_fy[n] < A_fy[n - k]) {      /* a joint across the channel */
             colour = 0;
             line(R_lx[k], R_ly[k], R_rx[k], R_ry[k]);
             line(R_lx[k], R_ly[k], R_wlx[k], R_wly[k]);
@@ -1411,64 +1434,79 @@ static void aq_paint(const RoadView *rv)
         }
         int pt[8];
         if (k > 1 && wall_patch(k, f, pt)) {
-            int n = clip(pt, 4, out);
-            if (n > 0) {
-                if (spans_bottom(0x5a, out, n)) g_aq.hits |= 1;
-                if (spans_bottom(0x13e, out, n)) g_aq.hits |= 4;
-                poly(out, n, 2, 0);
+            int m = clip(pt, 4, out);
+            if (m > 0) {
+                if (main && spans_bottom(0x5a, out, m)) g_aq.hits |= 1;
+                if (main && spans_bottom(0x13e, out, m)) g_aq.hits |= 4;
+                poly(out, m, 2, 0);
             }
         }
-        int j = 14 - k;
-        if ((f & 0x20) && k > 0) aq_shape(((A_xr[j] - A_xl[j]) >> 2) + A_xl[j], A_fy[j], j >> 1, 2);    /* 8482 */
-        if ((f & 0x40) && k > 0) aq_shape(A_xr[j] - ((A_xr[j] - A_xl[j]) >> 3), A_fy[j], j >> 1, 2);
+        int j = n - k, size = main ? j >> 1 : ((j - 1) >> 1) + 6;      /* 8482 */
+        if ((f & 0x20) && k > 0) aq_shape(((A_xr[j] - A_xl[j]) >> 2) + A_xl[j], A_fy[j], size, 2);
+        if ((f & 0x40) && k > 0) aq_shape(A_xr[j] - ((A_xr[j] - A_xl[j]) >> 3), A_fy[j], size, 2);
     }
     int aa = -1, b4;
-    for (int k = 0; k < 14; k++) if (T(seg + 14 - k) & 2) { aa = k; break; }
-    for (b4 = aa + 1; b4 < 14 && (T(seg + 14 - b4) & 2); b4++) { }
+    for (int k = 0; k < n; k++) if (TF(k) & 2) { aa = k; break; }
+    for (b4 = aa + 1; b4 < n && (TF(b4) & 2); b4++) { }
     if (b4 < 2) {
         int q[8] = { sfx, sfy, snx, sny, sox, soy, sgx, sgy };
         fill4(q, 2, 0, out);
     } else {                                           /* the stripe stops at a crossing */
         int x0, y0, x1, y1;
         if (aa > 0) {
-            int y = A_fy[14 - aa];
+            int y = A_fy[n - aa];
             rot(x_at(st_fl, st_fy, st_nl, st_ny, y), y, &x0, &y0);
             rot(x_at(st_fr, st_fy, st_nr, st_ny, y), y, &x1, &y1);
             int q[8] = { sfx, sfy, x0, y0, x1, y1, sgx, sgy };
             fill4(q, 2, 0, out);
         }
-        if (b4 < 13) {
-            int y = A_fy[14 - b4];
+        if (b4 < n - 1) {
+            int y = A_fy[n - b4];
             rot(x_at(st_fl, st_fy, st_nl, st_ny, y), y, &x0, &y0);
             rot(x_at(st_fr, st_fy, st_nr, st_ny, y), y, &x1, &y1);
             int q[8] = { x0, y0, snx, sny, sox, soy, x1, y1 };
             fill4(q, 2, 0, out);
         }
     }
-    for (int j = 14; j > 0; j--) {                     /* blocks, pillars and the opponent */
-        unsigned f = T(seg + j);
+    for (int j = n; j > 0; j--) {                      /* blocks, pillars and the opponent */
+        unsigned f = TB(j);
         if (f & 0x10) {
             int a2 = (A_xc[j] - A_xl[j]) / 3 + A_xl[j], b0 = (A_xc[j] - A_xr[j]) / 3 + A_xr[j];
             int a4 = A_fy[j], b8 = a4 + (A_ty[j] - a4) / 7;
             int c6 = A_fy[j - 1], c = c6 - (c6 - A_ty[j - 1]) / 7;
             int c4 = (A_xc[j - 1] - A_xl[j - 1]) / 3 + A_xl[j - 1], c0 = (A_xc[j - 1] - A_xr[j - 1]) / 3 + A_xr[j - 1];
             int p[16] = { a2, a4, b0, a4, a2, b8, b0, b8, c4, c6, c0, c6, c4, c, c0, c };
-            box(p, 0);
+            box(p, 0, main);
         }
         if (f & 0x80) {
             int v = (A_xr[j] - A_xl[j]) / 7, x1 = v + A_xl[j], x2 = x1 + (v >> 3);
             int w = (A_xr[j - 1] - A_xl[j - 1]) / 7, x3 = w + A_xl[j - 1], x4 = x3 + (w >> 3);
             int p[16] = { x1, A_fy[j], x2, A_fy[j], x1, A_ty[j], x2, A_ty[j],
                           x3, A_fy[j - 1], x4, A_fy[j - 1], x3, A_ty[j - 1], x4, A_ty[j - 1] };
-            box(p, 1);
+            box(p, 1, main);
             int r1 = A_xr[j] - v - (v >> 3), r3 = A_xr[j - 1] - w - (w >> 3);
             int q[16] = { r1, A_fy[j], r1 + (v >> 3), A_fy[j], r1, A_ty[j], r1 + (v >> 3), A_ty[j],
                           r3, A_fy[j - 1], r3 + (w >> 3), A_fy[j - 1], r3, A_ty[j - 1], r3 + (w >> 3), A_ty[j - 1] };
-            box(q, 1);
+            box(q, 1, main);
         }
-        if (rv->opp_seg - seg == j && rv->draw_opponent) rv->draw_opponent();
+        if (main) {
+            if (rv->opp_seg - seg == j && rv->draw_opponent) rv->draw_opponent();
+            continue;
+        }
+        if (j - n - rv->starter_seg + seg == 1) {                       /* a92a: the starter */
+            int p = n - j;
+            const Image *im = starter_pic(rv, p);
+            if (im) {
+                int y = A_fy[p], x = x_at(st_fl, st_fy, st_nl, st_ny, y) + 1;
+                if (g_aq.bank) rot(x, y, &x, &y);
+                road_sprite(im, x, y, im->w, im->h, g_aq.abs_bank < 6 ? 0 : g_aq.bank);
+            }
+        }
+        if (seg - rv->opp_seg == j && rv->draw_opponent_mirror) rv->draw_opponent_mirror();
     }
-    if (rv->opp_seg == seg && rv->draw_opponent) rv->draw_opponent();
+    if (main && rv->opp_seg == seg && rv->draw_opponent) rv->draw_opponent();
+#undef TF
+#undef TB
 }
 
 /* 11fc's Aqueduct branch for the windshield: 18ec, then a094 (the tilt, 9f08 / 9f9a, the turned
@@ -1496,7 +1534,8 @@ static void aq_draw(const RoadView *rv)
         rot(A_wr[i], A_ty[i], &R_wrx[14 - i], &R_wry[14 - i]);
     }
     aq_sky(rv);
-    aq_paint(rv);
+    aq_paint(rv, 14);
+    aq_mirror(rv);
 }
 
 int road_aq_ahead(const RoadView *rv, unsigned flags)
@@ -1527,4 +1566,312 @@ int road_aq_ahead(const RoadView *rv, unsigned flags)
         if ((n = clip(q2, 4, out)) > 0) hit |= bottom_hit(out, n);
     }
     return (int)hit;
+}
+
+/* ------------------------------------------------------------------ the rear-view mirror */
+
+int road_mproj_x(const RoadView *rv, int d, int lat, int turn_)        /* 1dcb:06ba */
+{
+    int16_t t = (int16_t)(turn_ * d);
+    int cam = rv->x;
+    if (rv->race == RACE_AQUEDUCT) cam = SDL_clamp(cam, 0x564, 0xd5c);
+    if (d == 0) d = 1;
+    return -((int16_t)(cam - (int16_t)(lat + (t >> 2))) / d - 0x118);
+}
+
+int road_mproj_y(const RoadView *rv, int d, int h, int rise)          /* 1dcb:070e */
+{
+    int16_t t = (int16_t)(rise * d);
+    if (d == 0) d = 1;
+    return (int16_t)(t - rv->h + h) / d + 0x24;
+}
+
+
+/* A picture scaled to w x h with the middle of its bottom edge at (cx, by), turned by `angle`
+ * degrees the way 0379 turns the view, clipped to the window or the mirror (2a21:a9ac). */
+void road_sprite(const Image *im, int cx, int by, int w, int h, int angle)
+{
+    if (!im || w <= 0 || h <= 0 || !V) return;
+    int sn = angle ? road_aq_sin(angle) : 0, cs = angle ? road_aq_sin(angle + 0x5a) : 256, r = angle ? w + h : 0;
+    int x0 = angle ? cx - r : cx - w / 2, x1 = angle ? cx + r : x0 + w - 1;
+    int y0 = angle ? by - r : by - h, y1 = angle ? by + r : by - 1;
+    for (int ty = SDL_max(y0, CLIP_Y0); ty <= y1 && ty <= CLIP_Y1; ty++)
+        for (int tx = SDL_max(x0, CLIP_X0); tx <= x1 && tx <= CLIP_X1; tx++) {
+            int u, v;
+            if (angle) {
+                int dx = tx - cx, dy = ty - by;
+                u = ((dx * cs - dy * sn) >> 8) + w / 2;
+                v = ((dx * sn + dy * cs) >> 8) + h;
+            } else { u = tx - x0; v = ty - y0; }
+            if (u < 0 || u >= w || v < 0 || v >= h) continue;
+            uint8_t c = im->pixels[(v * im->h / h) * im->w + u * im->w / w];
+            if ((im->flags & IMAGE_SPRITE) && !c) continue;
+            V->fb[ty * SCREEN_W + tx] = c;
+        }
+}
+
+static void copy_pic(const Image *im, int sx, int sy, int w, int h, int dx, int dy, int clipped)   /* a0ae */
+{
+    if (!im) return;
+    for (int r = 0; r < h; r++)
+        for (int c = 0; c < w; c++) {
+            int x = dx + c, y = dy + r, u = sx + c, v = sy + r;
+            if (u < 0 || u >= im->w || v < 0 || v >= im->h || x < 0 || x >= SCREEN_W || y < 0 || y >= SCREEN_H) continue;
+            if (clipped && (x < CLIP_X0 || x > CLIP_X1 || y < CLIP_Y0 || y > CLIP_Y1)) continue;   /* 3602 */
+            V->fb[y * SCREEN_W + x] = im->pixels[v * im->w + u];
+        }
+}
+
+/* 1dcb:57a6: the mirror's glass and frame (2005, put on the spare page at (0xe8, 0x66) by 370a) and
+ * the strip of hills at its horizon (2063, Mulholland 2037, at (0xe8, 0x81)); the Aqueduct has
+ * stars instead (85a0). `horizon` is the farthest slice's ground row (DS:9efe). */
+static void mirror_backdrop(const RoadView *rv, int horizon)
+{
+    const Image *glass = game_picture(G_, 0x7d5);
+    copy_pic(glass, 0x20, 0, 0x10, 2, 0x110, 0x12, 0);
+    copy_pic(glass, 0, 2, 0x50, 0x19, 0xf0, 0x14, 0);
+    if (rv->race == RACE_AQUEDUCT) {
+        int s = (int16_t)(rv->heading * 2) % 0x140;
+        stars(0x7f8e, 9, -(s >> 2), 2);                /* colours DS:ad48 / ad54 */
+        stars(0x7fb2, 3, -(s >> 2), 5);
+        return;
+    }
+    int mul = rv->race == RACE_MULHOLLAND;
+    copy_pic(game_picture(G_, mul ? 0x7f5 : 0x80f), 0, 0, 0x50, mul ? 0x14 : 2, 0xf0, horizon - (mul ? 10 : 2), 1);
+}
+
+static void mirror_frame(void)                         /* 1dcb:5a2c */
+{
+    clip_view();
+    colour = 2; vline(0xf0, 0x16, 0x2a);
+    colour = 4; vline(0xf1, 0x16, 0x2a);
+    colour = 4; vline(0x13e, 0x16, 0x2a);
+    colour = 2; vline(0x13f, 0x16, 0x2a);
+}
+
+/* 1dcb:a85c (a92a in the Aqueduct): the starter seen behind you once she has left the window, in
+ * one of four sizes (DS:9a2a, loaded by a5aa). */
+static const Image *starter_pic(const RoadView *rv, int p)
+{
+    if (!rv->starter_gone || p == 6) return NULL;
+    int idx = p < 3 ? p >> 1 : p - 1;
+    if (idx > 3) idx = 3;
+    static const uint16_t road_pics[4] = { 0x7d0, 0x7e6, 0x809, 0x80a }, aq_pics[4] = { 0x81e, 0x81f, 0x820, 0x821 };
+    return game_picture(G_, rv->race == RACE_AQUEDUCT ? aq_pics[idx] : road_pics[idx]);
+}
+
+/* By distance behind (0 at d 8 .. 7 at d 56). The 0x79e row (a7ea) is written twice per slice from
+ * slice 1 on, so the painter's "slice k" entries of it lag behind (kept as the original has it). */
+static int mxl[8], mxr[8], mgy[8], mxsl[8], mxsr[8], my19[8], my195[16], mtly[8], mtry[8], mxfl[8], mxfr[8];
+
+static void mirror_project(const RoadView *rv)         /* 1dcb:0ce4 */
+{
+    int seg = rv->seg, mul = rv->race == RACE_MULHOLLAND, edge = mul ? 200 : 400, here = HT(seg);
+    int rise = HT(seg) - here, turn_ = HD(seg) - rv->heading, d = 8;
+    if (mul) turn_ = turn_ > 0x3c ? 0x46 : turn_ < -0x3c ? -0x46 : turn_;
+    int s8 = SDL_abs(rv->sub) >> 3;
+    for (int k = 0; k < 8; k++) {
+        int s = seg - k, f = F(s) & 0xff, a, b;
+        if (k) {
+            if (k == 1) d = s8 + 8;
+            else if (k == 5) d = d + 8 - s8;
+            else d += 8;
+            rise = HT(s) - here;
+            turn_ = HD(s) - rv->heading;
+        }
+        if (!(f & 0xe0)) { a = 0xce4; b = 0x5dc; }
+        else if (f & 0x80) { a = 0xaf0; b = 2000; }
+        else if (f & 0x20) { a = b = 0xce4; }
+        else { a = b = 0x5dc; }
+        mxr[k] = road_mproj_x(rv, d, a, turn_);
+        mxl[k] = road_mproj_x(rv, d, b, turn_);
+        mgy[k] = road_mproj_y(rv, d, 2000, rise);
+        if (k == 0) my195[0] = road_mproj_y(rv, d, 0x79e, rise);
+        else my195[2 * k - 1] = my195[2 * k] = road_mproj_y(rv, d, 0x79e, rise);
+        mxsr[k] = road_mproj_x(rv, d, edge + 0xce4, turn_);
+        mxsl[k] = road_mproj_x(rv, d, 0x5dc - edge, turn_);
+        my19[k] = road_mproj_y(rv, d, 0x76c, rise);
+        mtly[k] = road_mproj_y(rv, d, 2000 - GL(seg + k), rise);     /* these two run forwards */
+        mtry[k] = road_mproj_y(rv, d, 2000 - GR(seg + k), rise);
+        mxfl[k] = road_mproj_x(rv, d, (edge - 0x177) * -4, turn_);
+        mxfr[k] = road_mproj_x(rv, d, (edge + 0x339) * 4, turn_);
+    }
+}
+
+static void mirror_strip(const RoadView *rv, int k, int f)   /* 1dcb:4852 */
+{
+    int mul = rv->race == RACE_MULHOLLAND, seg = rv->seg;
+    int l = mxl[k], r = mxr[k], y = mgy[k], yn = mgy[k - 1];
+    int l16 = l << 4, r16 = r << 4, dl = slope(mxl[k - 1], yn, l, y), dr = slope(mxr[k - 1], yn, r, y);
+    int sl = mxsl[k], sr = mxsr[k], sl16 = sl << 4, sr16 = sr << 4, dsl = 0, dsr = 0;
+    if (mul) { dsl = slope(mxsl[k - 1], yn, sl, y); dsr = slope(mxsr[k - 1], yn, sr, y); }
+    int w = 0, cl = 0;
+    if (f & 8) { w = dash_w(13 + k); cl = ((r + l) >> 1) - (w >> 1); }
+    if (yn - y < 0) return;
+    int white = (f & 0x10) && seg >= (mul ? 0x3ad : 0x169);
+    for (int n = yn - y; n != 0 && y < 0x2b; y++, n--) {
+        if (mul && !(f & 0x80)) {                      /* HT(pos) - 0xb <= a56c always holds */
+            colour = 2;
+            hline(sl - 6, l, y);
+            hline(r, sr + 6, y);
+        }
+        colour = 9;
+        if (!mul) { hline(0xf0, l, y); hline(r, 0x13f, y); }
+        else {
+            if (mtly[k - 1] == yn) hline(0xf0, l, y);
+            if (mtry[k - 1] == yn) hline(r, 0x13f, y);
+        }
+        colour = white ? 15 : 1;
+        hline(l, r, y);
+        if (f & 8) { colour = 4; hline(cl, cl + w, y); }
+        l16 += dl; l = l16 >> 4;
+        r16 += dr; r = r16 >> 4;
+        if (mul) { sl16 += dsl; sl = sl16 >> 4; sr16 += dsr; sr = sr16 >> 4; }
+        cl = ((r + l) >> 1) - (w >> 1);
+    }
+}
+
+/* 5aee's hillsides for Mulholland, one side (-1 left, 1 right). */
+static void mirror_hill(const RoadView *rv, int k, int side)
+{
+    int s = rv->seg - 1 - k, fall = rv->fall, edge = side < 0 ? CLIP_X0 : CLIP_X1;
+    const int *xs = side < 0 ? mxsl : mxsr, *xe = side < 0 ? mxl : mxr, *ty = side < 0 ? mtly : mtry;
+    if (fall == -side || mgy[k - 1] == ty[k - 1]) return;
+    int bridge = k != 1 && (F(s - 1) & 0x80);
+    int inside = side < 0 ? 0xf0 < xs[k] : xs[k] < 0x13f, inside1 = side < 0 ? 0xf0 < xs[k - 1] : xs[k - 1] < 0x13f;
+    if (!bridge) {
+        POLY(4, 0xe, edge, ty[k - 1], xs[k - 1] - fall, mgy[k - 1], xs[k] + fall, mgy[k], edge, ty[k]);
+        if (k == 1 && inside) POLY(3, 0xe, edge, ty[k - 1], xs[k], mgy[k], edge, mgy[k]);
+        else if (k >= 2 && mgy[k - 2] == ty[k - 2] && inside1) POLY(3, 0xe, edge, ty[k - 1], xs[k - 1], mgy[k - 1], edge, mgy[k - 1]);
+    } else {
+        POLY(4, 0xe, edge, ty[k - 1], xs[k - 1], mgy[k - 1], xs[k], mgy[k], edge, ty[k]);
+        POLY(6, 0xe, edge, ty[k - 1], xs[k - 1], mgy[k - 1], xe[k - 1], mgy[k - 1], xe[k - 2], mgy[k - 2],
+             xe[k - 2], CLIP_Y1, edge, CLIP_Y1);
+    }
+}
+
+/* 1dcb:5aee: the mirror, farthest slice (7) to nearest; per slice the segment one further back
+ * than its index (the original's pointers start at seg - 8). */
+static void mirror_draw(const RoadView *rv)
+{
+    int seg = rv->seg, mul = rv->race == RACE_MULHOLLAND, drag = !mul;
+    mirror_project(rv);
+    clip_mirror();
+    mirror_backdrop(rv, mgy[7]);
+    for (int k = 7; k > 0; k--) {
+        int s = seg - 1 - k;
+        unsigned f = F(s), lf = L(s), rf = R(s);
+        if (mul && !(f & 0x80)) { mirror_hill(rv, k, -1); mirror_hill(rv, k, 1); }
+        mirror_strip(rv, k, (int)f);
+        if (!(f & 4) || !(f & 1)) {
+            if ((f & 0xf000) && drag)
+                gantry_at(mxl[k], mxr[k], dash_w(13 + k), my19[k] * 4 - mgy[k] * 3, mgy[k], k + 5, f & 0xf000, (int)f);
+            if (k < 7) {
+                int ic = (k >> 1) + 7, width = mxr[k] - mxl[k], y = mgy[k];
+                int flat_l = mgy[k - 1] == mtly[k - 1], flat_r = mgy[k - 1] == mtry[k - 1];
+                if (!mul && (lf & 0x20)) object(mxl[k], y, ic, -1, 0, 0);
+                if ((lf & 0x100) && !(mul && !flat_l))
+                    object(lf & 0x200 ? mxsl[k] * 2 - mxl[k] : mxsl[k], y, ic, -1, mul ? 0x15 : 4, 1);
+                if (mul && (lf & 0x800)) object(mxl[k], y, ic, -1, 3, 0);
+                if (mul && (lf & 0x1000)) object(mxl[k], y, ic, 1, 6, 0);
+                if ((lf & 1) && flat_l) object(mxl[k], y, ic, 1, 1, 1);
+                if ((rf & 1) && flat_r) object(mxr[k], y, ic, -1, 1, 1);
+                if (drag || flat_l) {
+                    if (lf & 0x40) object(mxsl[k], y, ic, -1, 10, 0);
+                    if (lf & 0x80) object(lf & 2 ? (mxsl[k] + CLIP_X0) >> 1 : mxsl[k], y, ic, -1, mul ? 0x16 : 0xb, 0);
+                }
+                if (drag || flat_r) {
+                    if (rf & 0x40) object(mxsr[k], y, ic, 1, 10, 0);
+                    if (rf & 0x80) object(rf & 2 ? (mxfr[k] + CLIP_X1) >> 1 : mxsr[k], y, ic, 1, mul ? 0x16 : 0xb, 0);
+                }
+                if (mul && (lf & 0x10)) rocks(mxl[k], y, ic, 1);
+                if (mul && (rf & 0x10)) rocks(mxr[k], y, ic, -1);
+                if (drag || flat_l) {
+                    if (lf & 4) object(mxl[k], y, ic, -1, 7, 1);
+                    if (lf & 8) object(mxl[k], y, ic, -1, 8, 1);
+                }
+                if (drag || flat_r) {
+                    if (rf & 4) object(mxr[k], y, ic, 1, 7, 1);
+                    if (rf & 8) object(mxr[k], y, ic, 1, 8, 1);
+                }
+                if ((f & 2) && (drag || flat_r)) object(mxsr[k] - (width >> 3), y, ic, 1, 9, 0);
+                if (!mul && (rf & 0x20)) object(mxr[k], y, ic, 1, 0, 0);
+                if ((rf & 0x100) && !(mul && !flat_r))
+                    object(rf & 0x200 ? mxsr[k] * 2 - mxr[k] : mxsr[k], y, ic, 1, mul ? 0x15 : 4, 1);
+                if (rf & 0x2000) object(mxr[k], y, ic, 1, 0x12, 0);
+                if (rf & 0x4000) object(mxr[k], y, ic, 1, 0x13, 0);
+                if (rf & 0x800) object(mxr[k], y, ic, 1, 3, 0);
+                if (rf & 0x1000) object(mxr[k], y, ic, -1, 6, 0);
+                if (mul && (f & 4)) object((OB(s) * width >> 4) + mxl[k], y, ic, OB(s) < 9 ? -1 : 1, 7, 1);
+                if (mul && (f & 0x1000)) object((OB(s) * width >> 4) + mxl[k], y, ic, OB(s) < 9 ? -1 : 1, 0x14, 1);
+                if (f & 0x100) object(mxr[k], y, ic, 1, 5, 0);
+                if (f & 0x200) object(mxr[k], y, ic, 1, 0x10, 0);
+                if (f & 0x400) object(mxr[k], y, ic, 1, 0x11, 0);
+                if (f & 0x800) object(mxr[k], y, ic, 1, 0xf, 0);
+                if (seg - k == rv->starter_seg) {                          /* a85c */
+                    const Image *im = starter_pic(rv, k - 1);
+                    if (im) road_sprite(im, (mxr[k] + mxl[k]) >> 1, 0x27, im->w, im->h, 0);
+                }
+            }
+            if (mul) {
+                int w = dash_w(13 + k);
+                if ((f & 0x80) && (F(s + 1) & 0x80) && (F(s + 2) & 0x80))
+                    bridge_sides(mxl[k - 1], mxr[k - 1], my19[k - 1] * 4 - mgy[k - 1] * 3, mgy[k - 1],
+                                 mxl[k], mxr[k], my19[k] * 4 - mgy[k] * 3, mgy[k], seg - k, k < 4, w);
+                if ((f & 0x80) && !(F(s - 1) & 0x80)) bridge_start(mxl[k], mxr[k], my19[k] * 4 - mgy[k] * 3, mgy[k], w);
+                if ((rf & 0x8000) && !(f & 0x80)) {        /* the guard rail */
+                    if (((rail_start - k) - seg + 7) % 2 != 0) {
+                        int a = -10 / (k + 1) + mxsr[k - 1];
+                        const int post[] = { a, my195[k - 1] - 1, a, mgy[k - 1], mxsr[k - 1], mgy[k - 1], mxsr[k - 1], my195[k - 1] - 1 };
+                        poly(post, 4, 5, 2);
+                    }
+                    const int rail[] = { mxsr[k], my19[k] - 1, mxsr[k], my195[k], mxsr[k - 1], my195[k - 1], mxsr[k - 1], my19[k - 1] - 1 };
+                    poly(rail, 4, 5, 5);
+                    colour = 2;
+                    line(mxsr[k], my19[k] - 1, mxsr[k - 1], my19[k - 1] - 1);
+                    line(mxsr[k], my195[k], mxsr[k - 1], my195[k - 1]);
+                }
+            }
+        }
+        if (seg - k == rv->opp_seg && rv->draw_opponent_mirror) rv->draw_opponent_mirror();
+    }
+    mirror_frame();
+}
+
+/* 1dcb:1b02 + 9ce8: the Aqueduct in the mirror, 8 slices behind (d 2, then as 0ce4), the walls
+ * at the offsets the windshield used, turned with its tilt round the mirror's own far middle. */
+static void aq_mirror(const RoadView *rv)
+{
+    const AqView *q = &g_aq;
+    int c = (q->s_right + q->s_left + 0x12c0) >> 1, turn_ = -rv->heading, s8 = SDL_abs(rv->sub) >> 3, d = 2;
+    st_nl = road_mproj_x(rv, 2, c + q->s_left - 0x28, turn_);
+    st_nr = road_mproj_x(rv, 2, q->s_right + c + 0x28, turn_);
+    for (int i = 0; i < 8; i++) {
+        if (i == 1) d = s8 + 8;
+        else if (i == 5) d = d + 8 - s8;
+        else if (i) d += 8;
+        A_fy[i] = road_mproj_y(rv, d, q->s_floor + 2000, q->pitch);
+        A_xl[i] = road_mproj_x(rv, d, q->s_left + 0x5c8, turn_);
+        A_xr[i] = road_mproj_x(rv, d, q->s_right + 0xcf8, turn_);
+        A_xc[i] = road_mproj_x(rv, d, c + q->s_right, rv->heading);
+        A_ty[i] = road_mproj_y(rv, d, q->s_top + 0x67c, q->pitch);
+        A_wl[i] = road_mproj_x(rv, d, 0x438, turn_);
+        A_wr[i] = road_mproj_x(rv, d, 0xe88, turn_);
+    }
+    st_fl = road_mproj_x(rv, d, c + q->s_left - 0x28, turn_);
+    st_fr = road_mproj_x(rv, d, c + q->s_right + 0x28, turn_);
+    st_ny = A_fy[0];
+    st_fy = A_fy[7];
+    piv_x = (A_xl[7] + A_xr[7]) >> 1;
+    piv_y = A_fy[7];
+    for (int i = 0; i < 8; i++) {
+        rot(A_xl[i], A_fy[i], &R_lx[7 - i], &R_ly[7 - i]);
+        rot(A_xr[i], A_fy[i], &R_rx[7 - i], &R_ry[7 - i]);
+        rot(A_wl[i], A_ty[i], &R_wlx[7 - i], &R_wly[7 - i]);
+        rot(A_wr[i], A_ty[i], &R_wrx[7 - i], &R_wry[7 - i]);
+    }
+    clip_mirror();
+    mirror_backdrop(rv, A_fy[7]);
+    aq_paint(rv, 7);
+    mirror_frame();
 }

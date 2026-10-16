@@ -152,6 +152,7 @@ static int aq_roll, aq_gap, aq_head0;   /* 1dcb:a1c0's frames of rolling over */
 static int aq_skip;                     /* 809a: 1001:cee0 looks ahead every other frame */
 static uint8_t aq_pix[SCREEN_W * (CLIP_LAST + 1)];   /* the view as the frame drew it */
 static int aq_have;
+static int starter_seg;                 /* DS:9e6a: where the starter stands (0dcb:a746) */
 
 void race_autodrive(int on) { autodrive = on; }
 
@@ -751,7 +752,7 @@ static void race_frame(void)
         unsigned f = AQ_(pos + 2);
         if (!aq_skip) aq_skip = 1;
         else if (sub + dist > 0x38 && (f & 0x90)) {                    /* don't jump past a block or a pillar */
-            RoadView v = { pos, 0x38, cam_x, CAM_H, heading, race, opp_pos, 0, NULL, me.speed, autodrive == 1 };
+            RoadView v = { pos, 0x38, cam_x, CAM_H, heading, race, opp_pos, 0, NULL, me.speed, autodrive == 1, NULL, 0, 0 };
             if (road_aq_ahead(&v, f)) { sub = 0x38; dist = 0; aq_skip = 0; }
         }
     }
@@ -982,6 +983,7 @@ static void enter(Game *g)
     finish_seg = mulholland() ? 0x3c0 : aqueduct() ? 0x156 : 0x17c;
     road_aq_reset();                                                   /* 1dcb:8840 / 1001:8d9e */
     aq_side = aq_roll = aq_skip = aq_have = 0;
+    starter_seg = start_seg + 1;
     pos = opp_pos = start_seg;
     sub = opp_sub = 0;
     cam_x = cam_prev = CAM_X;                                          /* 1dcb:0736 */
@@ -1143,6 +1145,7 @@ static void frame(void)
     default:
         break;
     }
+    if (starter_there()) starter_seg = pos < opp_pos ? pos + 1 : opp_pos;  /* a746 */
     if (aqueduct() && (state == R_STAGE || state == R_READY)) aq_render();   /* 8ef4 draws 11fc too */
     if (result && state < R_CRASH && SDL_getenv("SR2_DEBUG"))
         SDL_Log("race over: result %x at pos %d x %d speed %d (opp pos %d x %d kind %d)", result, pos, cam_x, me.speed, opp_pos, opp_x, opp_kind);
@@ -1274,6 +1277,8 @@ static void aq_opponent(int d, int *kind, int *x, int *y, int *turn, int *tilt)
     road_aq_rotate(px, py, x, y);
 }
 
+static void draw_opponent_mirror(void);
+
 static void draw_opponent(void)
 {
     Player *p = &G->player;
@@ -1316,6 +1321,42 @@ static void draw_opponent(void)
     }
 }
 
+/* af98 for kinds 9..12: his front (picture +0x0a of the DS:aa9e record; 10..12 are pre-shrunk
+ * copies in the original, scaled 12/d here) in the mirror, through 06ba / 070e with the turn
+ * taken as 10 - (a56a - his road heading). */
+static void draw_opponent_mirror(void)
+{
+    Player *p = &G->player;
+    if (opp_hidden || opp_kind < 9 || opp_kind > 12) return;
+    const uint8_t *tbl = data_race_sprites() + 14 * sprite_set(rival_model(p, rival));
+    const Image *im = game_picture(G, tbl[10] | tbl[11] << 8);
+    if (!im) return;
+    int a = opp_ahead, d = -(a < 0 ? -((-a) >> 3) : a >> 3), turn = 0, h = GROUND, rise, x, y, angle = 0;
+    if (aqueduct()) {
+        int kind = 2, t = 3, tilt = 0;                                  /* his lift and tilt as ahead */
+        aq_opponent(4, &kind, &x, &y, &t, &tilt);
+        const AqView *q = &g_aq;
+        h = q->s_floor + 2000;
+        if (opp_x < q->s_left + 0x5c8)
+            h -= (int)((long)(q->s_left - opp_x + 0x5a0) * (q->s_top - q->s_floor + 0x154) / (400 + q->s_left));
+        else if (opp_x > q->s_right + 0xcf8)
+            h -= (int)((long)(q->s_top - q->s_floor + 0x154) * (opp_x - q->s_right - 0xcf8) / (400 - q->s_right));
+        turn = view.heading;
+        rise = q->pitch;
+        angle = t == 3 ? 0 : t < 0 ? tilt : (int16_t)exe_ds_u16((uint16_t)(0x7fbe + 2 * t));
+    } else {
+        turn = view.heading - g_road.heading[road_seg(opp_pos)];
+        rise = -(g_road.height[road_seg(pos)] - g_road.height[road_seg(opp_pos)]);
+    }
+    x = road_mproj_x(&view, d, opp_x, 10 - turn);
+    y = road_mproj_y(&view, d, h, rise);
+    if (aqueduct()) road_aq_rotate(x, y, &x, &y);
+    double scale = opp_kind == 9 ? 1.0 : 12.0 / (d > 0 ? d : 1);
+    if (scale > 1.0) scale = 1.0;
+    game_set_paint(G, rival == KING ? g_models[rival_model(p, rival)].colour : rival_get(p, rival, 0xa));
+    road_sprite(im, x, y, (int)(im->w * scale), (int)(im->h * scale), angle);
+}
+
 /* 1dcb:a1c0: over the top of a wall the car rolls over, eight frames (slowly: it only tips). */
 static void aq_roll_step(void)
 {
@@ -1352,7 +1393,8 @@ static void aq_roll_step(void)
 
 static void aq_render(void)
 {
-    view = (RoadView){ pos, sub, cam_x, CAM_H, heading, race, opp_pos, 0, draw_opponent, me.speed, autodrive == 1 };
+    view = (RoadView){ pos, sub, cam_x, CAM_H, heading, race, opp_pos, 0, draw_opponent, me.speed, autodrive == 1,
+                       draw_opponent_mirror, !starter_there(), starter_seg };
     road_draw(G, &view);
     memcpy(aq_pix, G->video.fb, sizeof aq_pix);
     aq_have = 1;
@@ -1463,7 +1505,8 @@ static void update(Game *g)
     if (aqueduct()) {                                                  /* drawn by the frame: it moves the car */
         if (aq_have) memcpy(v->fb, aq_pix, sizeof aq_pix);
     } else {
-        view = (RoadView){ pos, sub, x, eye, heading, race, opp_pos, fall, draw_opponent, me.speed, autodrive == 1 };
+        view = (RoadView){ pos, sub, x, eye, heading, race, opp_pos, fall, draw_opponent, me.speed, autodrive == 1,
+                           draw_opponent_mirror, !starter_there(), starter_seg };
         road_draw(g, &view);
     }
     if (you) game_set_paint(g, you->colour);
