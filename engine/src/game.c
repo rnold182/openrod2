@@ -155,6 +155,22 @@ void game_draw_status_bar(Game *g, const char *text)
     }
 }
 
+/* In a race (b7ae set) 2a21:1048 puts DS:4846 " Gear: " where the bankroll was (1e86 skips the money
+ * for a label starting " G"); d908 prints the gear (2a21:1f5e, table DS:1e1e) at the next 8-pixel
+ * boundary after it. Centred texts use the area 1c5a sets up, x 0x58 width 0xa0 (DS:ad36 / ad3a):
+ * only the money (1df4) would move it. */
+void game_draw_race_status_bar(Game *g, const char *gear, const char *text)
+{
+    Video *v = &g->video;
+    const uint8_t *sc = exe_ds((uint16_t)(0x1d06 + STATUS_SCHEME * 5), 5);
+    uint8_t fg = sc ? sc[0] : 15, bg = sc ? sc[1] : 0, fill = sc ? sc[2] : 0;
+    video_fill(v, 0, STATUS_Y, 320, 10, fill);
+    int x = font_draw(v, 0, STATUS_Y + 1, exe_ds_str(exe_ds_u16(0x4846)), fg, bg);
+    if (gear && *gear) font_draw(v, (x + 7) & ~7, STATUS_Y + 1, gear, fg, bg);
+    if (!text || !*text) return;
+    font_draw(v, ((0xa0 - font_text_width(text)) / 2 + 0x58) & ~7, STATUS_Y + 1, text, fg, bg);
+}
+
 /* LIB1 picture 2 holds three 16x16 cursors (wrench, hand, gas nozzle); hot spots from DS:200c. */
 enum { CURSOR_WRENCH, CURSOR_HAND, CURSOR_NOZZLE };
 

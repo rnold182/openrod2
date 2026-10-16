@@ -1489,7 +1489,9 @@ static void update(Game *g)
             for (int k = 0; k < 3 && (state == R_DONE || crash_ticks > 13 + 2 * k); k++)
                 game_draw_picture(g, ds16((uint16_t)(0x5136 + 6 * k)), ds16((uint16_t)(0x5138 + 6 * k)), ds16((uint16_t)(0x513a + 6 * k)));
     }
-    game_draw_status_bar(g, ready_text[0] ? ready_text : NULL);
+    char gear[2] = { 0, 0 };                                           /* d908 -> 2a21:1f5e, DS:1e1e */
+    if (state >= R_GO) gear[0] = me.automatic ? (me.auto_mode == 2 ? 'D' : 'N') : (char)('0' + me.gear);
+    game_draw_race_status_bar(g, gear, ready_text[0] ? ready_text : NULL);
     if (repair_open) dialog_draw(v, &repair);
     if (state == R_DONE && result_line1[0]) {
         ui_frame(v, 10, 10, 250, 22, 1);

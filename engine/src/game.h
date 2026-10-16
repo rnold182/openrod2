@@ -92,5 +92,7 @@ void game_draw_cursor(Game *g);
 /* The bottom status bar (2a21:1c5a / 1e86 / 1df4): "Bankroll: $..." at y 190, plus an optional
  * centred text in the space to its right. */
 void game_draw_status_bar(Game *g, const char *text);
+/* The race's status bar: " Gear: " and the gear shown (empty until the race starts). */
+void game_draw_race_status_bar(Game *g, const char *gear, const char *text);
 
 #endif

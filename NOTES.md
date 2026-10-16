@@ -80,6 +80,10 @@
 ## Status bar (2a21:1c5a / 1e86 / 1df4)
 - Bottom 10 rows (y 190..199), scheme 11: "`Bankroll:`$" (DS:4844 → string) at x 0, money from the next
   8-px boundary; the rest of the bar holds centred status texts (2a21:1cde).
+- In a race 2a21:1048 (after 1c5a: centred texts in x 0x58, width 0xa0) draws DS:4846 " Gear: "; 1e86
+  skips the money for a label whose 2nd char is 'G' or ' ', so ad36/ad3a stay put. d908 prints the
+  gear when it changes (2a21:1f5e: DS:1e1e "0".."4", "N", "D" for a124 + 4) at the next 8 px after
+  the label; nothing before the race starts. Checked against the original (DOSBox screenshots).
 
 ## Mouse cursor (2a21:2b44 / 2d90)
 - Software cursor drawn by the game from mouse mickeys (int 33h fn 0/3/0Bh only), clamped to 0..314 x 0..194.
