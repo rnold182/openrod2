@@ -294,6 +294,31 @@
   msg 0x5e (0x5f + new tires); else dialog 24 (61..90: rand(40) + 100) or 25 (31..60: rand(20) + 100)
   Fix it (pay) / Junk it (40% of the price). Bets are lost. ac68: tires from the spares, else $50.
 
+## The police on Mulholland (rebuild race.c police / ticket)
+- be82: Mulholland and not The King: DS:ab2c = 1 with a 1 in 4 chance (2a21:6180(4) == 0), waiting at
+  segment 9aca = 0x1e0 + rand(0xf0). d908 after cb98: state 1 at that segment: unless you are 7+
+  segments ahead of the opponent ab2c = 0; else ab2c = 2 and d85c swaps the opponent for the police:
+  c5d8 / c6f6 of rival 0x15 (The King's car figures, top speed for a33c = 60%, a2b0 = 80%), cb00 to
+  the opponent's speed, DS:a80a = ac32 (rival 10's record: its skill byte, and the standings after),
+  the picture table b7b6 from 9a94 (37ce: record DS:aafa = aae4 = set 5 of aa9e - big rear 2035,
+  medium 2036 pre-shrunk once, front 2039 - but the opponent's own side view), 8d0a(5): palette
+  registers 12 / 3 from DS:4d1e[5] (your car's paint changes too). State 2: once you are no more than
+  15 segments ahead, ab2c = 3 and the siren (sound slot 11, 2c57:0fcc: voice 2 timbre "police"
+  volume 0x7f, pitch range 5, bend 0x2000, note 0x50; off: note off, bend 0x2000). State 3: they get
+  more than 2 segments past you: a1bc |= 0x41. Any other end of the race with ab2c >= 2 and a1bc set
+  (lost, crashed, broken) also |= 0x41; the siren stops.
+- cb98: with ab2c >= 2 and you at 0x33+ mph the police hold their speed to yours + 0x20. Running into
+  their back is no crash, and they don't shove you (d908).
+- b584 (a1bc & 0x40, you didn't win): siren off, adc0 the ticket: 2051 (the officer's hand) at
+  (0, 0x45), 2009 (the ticket) at (88, 0x14), your name at (0x5e, 0x48) and the car's name at
+  (0x5e, 99) cut to the ticket's width - 8 (ad36), scheme 13; new tires first if they blew (ac68,
+  its shortfall adds to the fine); fine 20 / 50 / 75 below 0x33 / 0x51 / above (your speed);
+  "You have been fined $%2d for speeding" (DS:51e7) in the status bar for 0xfa ticks, then paid
+  (return 3: counted as lost, bets untouched, no repair dialog). Without the money: message 0x52,
+  all your money (return 4) and a626 runs a9fc: the jail - Burger's (1073) behind bars (1153 / 1154 /
+  1155, blits table DS:5070), cars still coming and going (999a / 9b26 every 0x118 ticks), dialog 21
+  "Wanna quit ?" - then 1bc6 |= 4, which ends the game (36ac). Not rebuilt yet (End of summer step).
+
 ## The Aqueduct (add6 8; rebuild road.c aq_* / race.c)
 - Setup: segments 8..0x156 (bc88), tire wear 700/400 like Mulholland ((add6 & 7) == 0), fuel > 11,
   burns 10 (b584), time 0x555 (9e3c); race screen 1dcb:8840 instead of 37ce. The road heading

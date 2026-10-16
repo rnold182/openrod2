@@ -37,7 +37,7 @@ OpenRod 2 is a from-scratch rebuild of **Street Rod 2** (1990, DOS) in plain C +
   - one race line about every 2 s (pos, speed, rpm, x, heading, opponent);
   - "race over: result ...";
   - the gantry segment ("road: gantry over segment N").
-- Cheats (F12 or `` ` ``): `money`, `car`, `part`, `day`, `anim`, `rival N` (at Burger's), `agree` (rivals take every bet), `autodrive` (drives, steers along the road, can't crash), `autodrive pedals` (gas and shifting only, you steer), `help`.
+- Cheats (F12 or `` ` ``): `money`, `car`, `part`, `day`, `anim`, `rival N` (at Burger's), `agree` (rivals take every bet), `autodrive` (drives, steers along the road, can't crash), `autodrive pedals` (gas and shifting only, you steer), `police` (next Mulholland race), `save N`, `help`.
 - RE tools:
   - `out/sr_decompiled.c` is the Ghidra output. Ghidra segment = image segment + 0x1000; DS = 0x3e08. So `FUN_1dcb_x` is image 0dcb:x and `FUN_2a21_x` is 1a21:x.
   - Extract one function: `awk 'f && /^\/\/ ==== FUN_/ {exit} /==== FUN_1001_9e3c @/ {f=1} f' out/sr_decompiled.c`.
@@ -73,6 +73,9 @@ OpenRod 2 is a from-scratch rebuild of **Street Rod 2** (1990, DOS) in plain C +
 - **The rear-view mirror** in all three races (road.c `mirror_*`, `aq_mirror`): road, scenery,
   hills, the starter shrinking behind you, the opponent's front.
 
+- **The police on Mulholland**: they take the opponent's place, siren, pull you over, the ticket and
+  the fine (cheat `police` forces them on the next Mulholland race).
+
 **Recent fixes:**
 - At Burger's, the parked car's bottom 8 rows are left undrawn (DS:1bde[2]), as in the original.
 - The cursor shows over the crash dialog.
@@ -80,16 +83,12 @@ OpenRod 2 is a from-scratch rebuild of **Street Rod 2** (1990, DOS) in plain C +
   the starter is still there disqualifies you (msg 0x78), as in the original.
 
 ## Next steps (in this order)
-1. **Police on Mulholland.**
-   - DS:ab2c: a 1 in 4 chance; the police wait at segment 9aca.
-   - The d908 state machine, d85c, the siren (bbb8, sound slot 11).
-   - b584's a1bc & 0x40 path: a speeding fine "You have been fined $%2d" (DS:51e7), the 2009 ticket picture, message 0x52.
-2. **Race aftermath.** The King losing (1001:a51c), and the opponent's small rear views: the original uses pre-scaled copies (scale bytes from SR2_DATA via 37ce's a0ea calls, DS:aaa4 records), the rebuild still scales them by 12/d (the mirror's front views 10..12 too).
-3. **The gas station.** Garage "Wanna tank?" hotspot id 15, mode 3, 3925:2104, dialog 22.
-4. **Grudge Night.** Id 17, Wednesdays only (63e0() % 7 == 2), $30, fuel > 23, mode 4, 3925:1970 (race types 2/4 use tables 60be/61a6/6572).
-5. **Street details.** Cars driving in and out with their motor sound (2a21:89fa, 1001:20a0/2176), the carhop (2a21:945a, picture 0x458), rival taunts (1001:9432).
-6. **End of summer.** Day > 90 → DS:1bc6, 1001:36ac / 348a.
-7. **Options menu** for every `opt_*` setting.
+1. **Race aftermath.** The King losing (1001:a51c), and the opponent's small rear views: the original uses pre-scaled copies (scale bytes from SR2_DATA via 37ce's a0ea calls, DS:aaa4 records), the rebuild still scales them by 12/d (the mirror's front views 10..12 too).
+2. **The gas station.** Garage "Wanna tank?" hotspot id 15, mode 3, 3925:2104, dialog 22.
+3. **Grudge Night.** Id 17, Wednesdays only (63e0() % 7 == 2), $30, fuel > 23, mode 4, 3925:1970 (race types 2/4 use tables 60be/61a6/6572).
+4. **Street details.** Cars driving in and out with their motor sound (2a21:89fa, 1001:20a0/2176), the carhop (2a21:945a, picture 0x458), rival taunts (1001:9432).
+5. **End of summer and the other endings.** Day > 90 → DS:1bc6, 1001:36ac / 348a. Also jail when you can't pay a police fine (b584 returns 4 → 1001:a9fc, 1bc6 |= 4; see NOTES "The police on Mulholland"), and beating The King on the Aqueduct (a51c, 1bc6 |= 2).
+6. **Options menu** for every `opt_*` setting.
 
 ## Starter prompt for the new session
 > We're continuing OpenRod 2, my C/SDL3 rebuild of Street Rod 2 in C:\Users\inact\SR2. Read HANDOVER.md in the repo first (rules, build/test commands, where we are, next steps), then NOTES.md's race sections ("The drag race", "The roads", "Steering, collisions and Mulholland Drive") and engine/src/scenes/race.c + engine/src/road.c. Keep exactly the same approach: faithful ports from out/sr_decompiled.c and the disassembler, original addresses in comments, findings into NOTES.md, modern touches only as opt_* options, commit + push after each step, build both build_dev and build (check openrod2.exe isn't running), test with scripted runs and screenshots. Next task: step 1 in HANDOVER.md.

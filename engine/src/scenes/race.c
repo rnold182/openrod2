@@ -146,6 +146,13 @@ static int rear_hit, alongside;         /* 9a48, b8c0 */
 static int side_frames, bumped, in_bend;   /* 809c, 523e, 8014 */
 static int shoved;                      /* 809e: steps of braking after he shoves you */
 static int crash_speed, crash_ticks;    /* the crash screen (1001:af0a) */
+/* The police on Mulholland (DS:ab2c): 1 waiting at segment police_seg (9aca), 2 they've taken the
+ * opponent's place behind you (1001:d85c), 3 the siren is on; they pass you and you're stopped. */
+static int police, police_seg, fined;
+static int force_police;                /* testing: the next Mulholland race has them */
+static int ticket_open, ticket_paid, fine;
+static Uint64 ticket_start;
+void race_force_police(void) { force_police = 1; }
 /* The Aqueduct. */
 static int aq_side;                     /* b8c8: over the top of the left (1) or right (-1) wall */
 static int aq_roll, aq_gap, aq_head0;   /* 1dcb:a1c0's frames of rolling over */
@@ -163,6 +170,7 @@ void race_autodrive(int on) { autodrive = on; }
 #define RES_JUMPED  0x081
 #define RES_TIRES   0x009
 #define RES_CENTRE  0x101               /* over the middle at the start (1001:d908) */
+#define RES_CAUGHT  0x041               /* the police got you (a1bc |= 0x41) */
 #define RES_CRASH   0x021               /* off the road or into something (a1bc |= 0x21) */
 #define RES_HIT_OPP 0x003               /* into the opponent's back */
 #define RACE_TIRE   0x008               /* a1bc |= 8: the tires gave out on the way */
@@ -356,6 +364,10 @@ static void opp_set_speed(int target)        /* 1001:cb00 */
     e->speed = e->rpm / e->cur_ratio;
 }
 
+/* c6f6: the opponent's top speed; DS:a33c / a2b0 hold 70% / 80% of it (the police 60% / 80%). */
+static int opp_top(void) { return model_max_speed(&G->player, rival_model(&G->player, police >= 2 ? KING : rival)); }
+static int opp_cruise(void) { return opp_top() * (police >= 2 ? 6000 : 7000) / 10000; }
+
 static void opp_engine(void)
 {
     Engine *e = &opp;
@@ -370,7 +382,7 @@ static void opp_engine(void)
         if (!aqueduct() && HD_(opp_pos + 1) != HD_(opp_pos)) {         /* into a bend: ease off once */
             if (!in_bend) {
                 in_bend = 1;
-                int target = model_max_speed(&G->player, rival_model(&G->player, rival)) - (pos < opp_pos ? 0x1e : 3);
+                int target = opp_top() - (pos < opp_pos ? 0x1e : 3);
                 if (target < e->speed) opp_set_speed(target);
                 continue;
             }
@@ -379,15 +391,16 @@ static void opp_engine(void)
         if (gap < 13) {
             if (gap > -5 && gap < 5) {                                 /* side by side: stay in reach */
                 target = 10 + me.speed;
-                int cruise = model_max_speed(&G->player, rival_model(&G->player, rival)) * 7000 / 10000;
+                int cruise = opp_cruise();
                 if (pos > 0x1d && target < cruise) target = cruise;
                 if (target >= e->speed) target = -1;
             }
         } else {
-            int top = model_max_speed(&G->player, rival_model(&G->player, rival));
-            int cruise = me.speed < 0x61 && rival != KING ? top * 7000 / 10000 : top * 8000 / 10000;
+            int cruise = me.speed < 0x61 && rival != KING ? opp_cruise() : opp_top() * 8000 / 10000;
             if (e->speed > cruise) target = cruise;                    /* way ahead: no need to show off */
         }
+        if (target < 0 && police >= 2 && me.speed >= 0x33 && e->speed > me.speed + 0x20)
+            target = me.speed + 0x20;                                  /* cb98: the police keep just ahead of you */
         if (target >= 0) { opp_set_speed(target); continue; }
         e->rpm += e->accel;
         if (e->rpm > opp_limit) e->rpm = opp_limit;
@@ -693,7 +706,7 @@ static void opp_view(void)
 static void contact(void)
 {
     if (result || !alongside || pos >= finish_seg) return;
-    if (rear_hit) { result = RES_HIT_OPP; return; }
+    if (rear_hit && police < 2) { result = RES_HIT_OPP; return; }  /* the police don't mind */
     if (opp_kind == 0 && frame_distance(me.speed) > 1) {
         side_frames++;
         if (steer < 0) {
@@ -705,7 +718,7 @@ static void contact(void)
             bumped = 1;
             return;
         }
-        if (!opp_close || side_frames < 4) return;
+        if (!opp_close || side_frames < 4 || police >= 2) return;
         int s1 = (int8_t)G->player.rivals[rival * 18 + 1], n = ((-s1 - 0xf) >> 2) + 2;
         if (n > 0 && (int)SDL_rand((Sint32)n) == 0) {                  /* he shoves you */
             sound_sfx(SFX_BUMP);
@@ -723,6 +736,35 @@ static void aq_render(void);
 
 static RoadView view;
 static void aq_roll_step(void);
+
+/* Sound slot 11 (2c57:0fcc): the siren, voice 2 "police" held at note 0x50. */
+static void siren(int on)
+{
+    if (on) {
+        sound_voice_timbre(2, "police", 0x7f);
+        sound_pitch_range(5);
+        sound_voice_bend(2, 0x2000);
+        sound_voice_note_off(2);
+        sound_voice_note_on(2, 0x50);
+    } else {
+        sound_voice_note_off(2);
+        sound_voice_bend(2, 0x2000);
+    }
+}
+
+/* 1001:d85c: the police take the opponent's place: The King's car figures (c5d8 / c6f6 of rival
+ * 0x15) at the opponent's speed, rival 10's record (DS:ac32, its skill byte), the police pictures
+ * (DS:9a94, set 5 of DS:aa9e but the opponent's own side view) and paint colour 5 (8d0a). */
+static void police_switch(void)
+{
+    static Car stock;
+    int speed = opp.speed;
+    car_make_stock(&stock, rival_model(&G->player, KING), 0, 0);
+    engine_setup(&opp, &stock);
+    skill = (int8_t)G->player.rivals[10 * 18];
+    opp_limit = opp.automatic ? 0x14b4 : (skill - 10) * 200 + opp.shift_rpm;
+    opp_set_speed(speed);
+}
 
 static void race_frame(void)
 {
@@ -748,6 +790,16 @@ static void race_frame(void)
     /* 1001:d908 */
     if (blowout_at && blowout_at < pos) tire_flat = 1;
     opp_engine();
+    if (police == 1 && pos >= police_seg) {                            /* d908: the police wait here */
+        if (pos < opp_pos + 7) police = 0;                             /* not far enough ahead: nothing */
+        else { police = 2; police_switch(); }
+    } else if (police == 2 && pos <= opp_pos + 0xf) {
+        police = 3;
+        siren(1);
+    } else if (police == 3 && pos < opp_pos - 2 && !result) {
+        result = RES_CAUGHT;                                           /* pulled over */
+        return;
+    }
     if (aqueduct()) {                                                  /* 1001:cee0 */
         unsigned f = AQ_(pos + 2);
         if (!aq_skip) aq_skip = 1;
@@ -895,6 +947,19 @@ static void settle(void)
     Player *p = &G->player;
     int burn = mulholland() ? 0xf : aqueduct() ? 10 : 5;               /* b584: DS:add6 1 / 0x10 / 8 */
     if (you->fuel > burn) you->fuel -= burn; else you->fuel = 0;
+    if (fined) {
+        int extra = 0;
+        if (blowout_at && tire_flat) {                                 /* ac68: new tires first */
+            long before = p->money;
+            new_tires();
+            if (before < 0x32 && !p->money) extra = (int)(0x32 - before);
+        }
+        fine = extra + (me.speed < 0x33 ? 0x14 : me.speed < 0x51 ? 0x32 : 0x4b);
+        ticket_open = 1;
+        ticket_paid = 0;
+        ticket_start = SDL_GetTicks();
+        goto standings;                                                /* counted as lost */
+    }
     if (result == RES_CRASH || result == RES_HIT_OPP || (result & RACE_TIRE)) {
         p->money -= bet;
         crash_settle();
@@ -925,22 +990,24 @@ static void settle(void)
         game_message(G, result == RES_ENGINE ? (stake == 5 ? 0x5a : 0x58) : (stake == 5 ? 0x59 : 0x57));
         if (stake == 5) lose_car();
     }
+standings:
     /* Standings (tail of 1001:a626). */
     int won = result == RES_WON;
     if (result != RES_JUMPED) player_set_counter(p, 0, player_counter(p, 0) + 1);
     int kind = mulholland() ? 2 : aqueduct() ? 3 : 1;                  /* DS:479e / 47a0 / 47a2 */
     if (won) player_set_counter(p, kind, player_counter(p, kind) + 1);
-    int rep = player_rep(p, 0), rrep = rival_get(p, rival, 0xf);
+    int sr = police >= 2 ? 10 : rival;                                 /* DS:a80a: the police use rival 10's record */
+    int rep = player_rep(p, 0), rrep = rival_get(p, sr, 0xf);
     if (won) { if (rep < 8) rep++; if (rrep > 1) rrep--; }
     else { if (rep > 1) rep--; if (rrep < 8) rrep++; }
     p->header_raw[0x28] = (uint8_t)rep;
-    rival_set(p, rival, 0xf, rrep);
-    rival_set(p, rival, 0xc, rival_get(p, rival, 0xc) + 1);
-    int rep2 = player_rep(p, 1), rrep2 = rival_get(p, rival, 0x10);
+    rival_set(p, sr, 0xf, rrep);
+    rival_set(p, sr, 0xc, rival_get(p, sr, 0xc) + 1);
+    int rep2 = player_rep(p, 1), rrep2 = rival_get(p, sr, 0x10);
     if (you_first) { if (rep2 < 8) rep2++; if (rrep2 > 1) rrep2--; }
     else { if (rep2 > 1) rep2--; if (rrep2 < 8) rrep2++; }
     p->header_raw[0x29] = (uint8_t)rep2;
-    rival_set(p, rival, 0x10, rrep2);
+    rival_set(p, sr, 0x10, rrep2);
     if (rival == KING) {                                               /* 1001:a626 after b584 */
         if (!won) {
             player_set_counter(p, 5, 0);                               /* back to the start (DS:47a6, ad03) */
@@ -997,6 +1064,14 @@ static void enter(Game *g)
     opp_kind = opp_kind_prev = 2;
     opp_ahead = opp_hidden = rear_hit = alongside = 0;
     repair_open = go_home = 0;
+    /* 1001:be82: on Mulholland, unless it's The King, the police may be waiting (1 in 4). */
+    police = fined = ticket_open = ticket_paid = 0;
+    if (mulholland() && rival != KING && ((int)SDL_rand(4) == 0 || force_police)) {
+        police = 1;
+        police_seg = (int)SDL_rand(0xf0) + 0x1e0;
+        if (force_police) SDL_Log("race: police waiting at segment %d", police_seg);
+    }
+    force_police = 0;
     g_road_hits.object = g_road_hits.bump = 0;
     new_segment();
     if (you->tires.part >= 0)                                          /* DS:521e: how much they slip */
@@ -1069,6 +1144,7 @@ static void key(Game *g, SDL_Scancode sc, SDL_Keycode k)
     (void)g;
     if (state == R_CRASH) return;
     if (repair_open) { repair_choice(dialog_key(&repair, sc)); return; }
+    if (ticket_open && !ticket_paid) return;
     if (state == R_DONE) { leave_race(); return; }
     if (k == SDLK_SPACE || k == SDLK_RETURN || k == SDLK_LSHIFT || k == SDLK_RSHIFT) shift_pressed = 1;
 }
@@ -1078,6 +1154,7 @@ static void click(Game *g, int x, int y)
     (void)g;
     if (state == R_CRASH) return;
     if (repair_open) { repair_choice(dialog_click(&repair, x, y)); return; }
+    if (ticket_open && !ticket_paid) return;
     if (state == R_DONE) { leave_race(); return; }
     shift_pressed = 1;                                                 /* left button: the gear stick */
 }
@@ -1151,6 +1228,11 @@ static void frame(void)
         SDL_Log("race over: result %x at pos %d x %d speed %d (opp pos %d x %d kind %d)", result, pos, cam_x, me.speed, opp_pos, opp_x, opp_kind);
     if (fall && !fell_steps && result == RES_CRASH) fell_steps = 1;   /* 1dcb:7da2: over the edge */
     if (result && state < R_CRASH) {
+        if (police >= 2) {                                             /* d908 / b584: the ticket */
+            if (result != RES_WON) fined = 1;
+            siren(0);
+            if (result == RES_CAUGHT) result = 0;                      /* no other result to settle */
+        }
         engine_sound(0);
         if (tire_flat && result != RES_WON) result |= RACE_TIRE;
         if (result == RES_CRASH || result == RES_HIT_OPP || (result & RACE_TIRE)) {
@@ -1163,6 +1245,23 @@ static void frame(void)
         state = R_DONE;
         settle();
         result_screen();
+    }
+}
+
+/* b584's police part: the ticket (1001:adc0), "You have been fined $N for speeding" (DS:51e7) for
+ * 0xfa ticks, then it's paid; without the money you have, it's message 0x52, all your money, and
+ * a spell in jail (1001:a9fc). Bets are not settled. */
+static void ticket_step(void)
+{
+    if (!ticket_open || ticket_paid || game_ticks_since(ticket_start) < 0xfa) return;
+    Player *p = &G->player;
+    ticket_paid = 1;
+    if (p->money >= fine) p->money -= fine;
+    else {
+        game_message(G, 0x52);
+        p->money = 0;
+        go_home = 1;                                                   /* a9fc: jail, not rebuilt yet */
+        SDL_Log("race: can't pay the fine - jail (1001:a9fc) not rebuilt yet");
     }
 }
 
@@ -1278,13 +1377,23 @@ static void aq_opponent(int d, int *kind, int *x, int *y, int *turn, int *tilt)
 }
 
 static void draw_opponent_mirror(void);
+static int opp_paint(void)
+{
+    Player *p = &G->player;
+    return police >= 2 ? 5 : rival == KING ? g_models[rival_model(p, rival)].colour : rival_get(p, rival, 0xa);
+}
+static int my_paint(void) { return police >= 2 ? 5 : you->colour; }   /* 8d0a(5) repaints register 12 */
+/* The opponent's pictures (DS:aa9e record, 14 bytes): the police use set 5 but keep his side view. */
+static int opp_pic(int entry)
+{
+    const uint8_t *t = data_race_sprites() + 14 * sprite_set(rival_model(&G->player, rival));
+    if (police >= 2 && entry) t = data_race_sprites() + 14 * 5;
+    return t[2 * entry] | t[2 * entry + 1] << 8;
+}
 
 static void draw_opponent(void)
 {
-    Player *p = &G->player;
-    int set = sprite_set(rival_model(p, rival));
-    const uint8_t *tbl = data_race_sprites() + 14 * set;               /* DS:aa9e: side, big and medium rear */
-    int side_pic = tbl[0] | tbl[1] << 8, big_pic = tbl[2] | tbl[3] << 8, med_pic = tbl[4] | tbl[5] << 8;
+    int side_pic = opp_pic(0), big_pic = opp_pic(1), med_pic = opp_pic(2);   /* DS:aa9e: side, big and medium rear */
     int ahead = opp_ahead, kind = opp_kind;
     if (opp_hidden || kind < 0 || kind >= 9) return;
     int d = ahead < 0 ? -((-ahead) >> 3) : ahead >> 3;
@@ -1299,7 +1408,7 @@ static void draw_opponent(void)
         x = road_proj_x(&view, d, opp_x, view.heading - g_road.heading[road_seg(opp_pos)]);
         y = road_proj_y(&view, d, GROUND, g_road.height[road_seg(pos)] - g_road.height[road_seg(opp_pos)]);
     }
-    game_set_paint(G, rival == KING ? g_models[rival_model(p, rival)].colour : rival_get(p, rival, 0xa));
+    game_set_paint(G, opp_paint());
     if (kind == 0) {                                                   /* the car beside you, cut by the pillar */
         const Image *im = game_picture(G, side_pic);
         if (!im) return;
@@ -1326,10 +1435,8 @@ static void draw_opponent(void)
  * taken as 10 - (a56a - his road heading). */
 static void draw_opponent_mirror(void)
 {
-    Player *p = &G->player;
     if (opp_hidden || opp_kind < 9 || opp_kind > 12) return;
-    const uint8_t *tbl = data_race_sprites() + 14 * sprite_set(rival_model(p, rival));
-    const Image *im = game_picture(G, tbl[10] | tbl[11] << 8);
+    const Image *im = game_picture(G, opp_pic(5));
     if (!im) return;
     int a = opp_ahead, d = -(a < 0 ? -((-a) >> 3) : a >> 3), turn = 0, h = GROUND, rise, x, y, angle = 0;
     if (aqueduct()) {
@@ -1353,7 +1460,7 @@ static void draw_opponent_mirror(void)
     if (aqueduct()) road_aq_rotate(x, y, &x, &y);
     double scale = opp_kind == 9 ? 1.0 : 12.0 / (d > 0 ? d : 1);
     if (scale > 1.0) scale = 1.0;
-    game_set_paint(G, rival == KING ? g_models[rival_model(p, rival)].colour : rival_get(p, rival, 0xa));
+    game_set_paint(G, opp_paint());
     road_sprite(im, x, y, (int)(im->w * scale), (int)(im->h * scale), angle);
 }
 
@@ -1473,6 +1580,26 @@ static void draw_dash(void)
     }
 }
 
+/* 1001:adc0: the officer's hand (2051) at (0, 0x45) gives you the ticket (2009) at (88, 0x14), your
+ * name at (0x5e, 0x48) and the car at (0x5e, 99), cut to the ticket's width - 8 (ad36), scheme 13. */
+static void draw_ticket(void)
+{
+    Video *v = &G->video;
+    const Image *hand = game_picture(G, 0x803), *ticket = game_picture(G, 0x7d9);
+    if (hand) video_blit_part(v, hand, 0, 0, hand->w, hand->h, 0, 0x45);
+    if (!ticket) return;
+    video_blit_part(v, ticket, 0, 0, ticket->w, ticket->h, hand ? hand->w : 88, 0x14);
+    const uint8_t *sc = exe_ds((uint16_t)(0x1d06 + 13 * 5), 5);
+    uint8_t fg = sc ? sc[0] : 15, bg = sc ? sc[1] : 0;
+    const char *lines[2] = { G->player.name, you ? g_models[you->model].ad : "" };
+    for (int k = 0; k < 2; k++) {
+        char t[48];
+        SDL_strlcpy(t, lines[k], sizeof t);
+        while (t[0] && font_text_width(t) > ticket->w - 8) t[SDL_strlen(t) - 1] = 0;
+        font_draw(v, 0x5e, k ? 99 : 0x48, t, fg, bg);
+    }
+}
+
 static void update(Game *g)
 {
     Uint64 now = SDL_GetTicks();
@@ -1496,7 +1623,7 @@ static void update(Game *g)
 
     Video *v = &g->video;
     game_set_palette(g, PAL_INCAR);
-    if (you) game_set_paint(g, you->colour);
+    if (you) game_set_paint(g, my_paint());
     video_clear(v, 0);
     int t = dash_type(you ? you->model : 0);
     if (t > 2) t = 0;
@@ -1509,12 +1636,12 @@ static void update(Game *g)
                            draw_opponent_mirror, !starter_there(), starter_seg };
         road_draw(g, &view);
     }
-    if (you) game_set_paint(g, you->colour);
+    if (you) game_set_paint(g, my_paint());
     /* 1dcb:573e: the top of the steering wheel shows above the dashboard (DS:78e0). */
     game_draw_picture(g, ds16((uint16_t)(0x78e0 + 6 * t)), ds16((uint16_t)(0x78e2 + 6 * t)), ds16((uint16_t)(0x78e4 + 6 * t)));
     draw_starter();
     game_draw_picture(g, 0x7d3, 0, 0x12);                             /* 1dcb:56e8: the window's left pillar (DS:9a52) */
-    if (you) game_set_paint(g, you->colour);
+    if (you) game_set_paint(g, my_paint());
     game_draw_picture(g, 0x7dd, 0, 0);                                 /* roof and mirror */
     draw_dash();
     if (aq_side && aq_roll < 9) { }                                    /* still rolling */
@@ -1532,9 +1659,16 @@ static void update(Game *g)
             for (int k = 0; k < 3 && (state == R_DONE || crash_ticks > 13 + 2 * k); k++)
                 game_draw_picture(g, ds16((uint16_t)(0x5136 + 6 * k)), ds16((uint16_t)(0x5138 + 6 * k)), ds16((uint16_t)(0x513a + 6 * k)));
     }
+    ticket_step();
     char gear[2] = { 0, 0 };                                           /* d908 -> 2a21:1f5e, DS:1e1e */
     if (state >= R_GO) gear[0] = me.automatic ? (me.auto_mode == 2 ? 'D' : 'N') : (char)('0' + me.gear);
-    game_draw_race_status_bar(g, gear, ready_text[0] ? ready_text : NULL);
+    if (ticket_open) {
+        draw_ticket();
+        char text[64] = "";
+        if (!ticket_paid) SDL_snprintf(text, sizeof text, exe_ds_str(0x51e7), fine);   /* "You have been fined $%2d for speeding" */
+        if (ticket_paid) game_draw_status_bar(g, NULL);                /* 1df4: the money paid */
+        else game_draw_status_bar(g, text);
+    } else game_draw_race_status_bar(g, gear, ready_text[0] ? ready_text : NULL);
     if (repair_open) dialog_draw(v, &repair);
     if (state == R_DONE && result_line1[0]) {
         ui_frame(v, 10, 10, 250, 22, 1);
