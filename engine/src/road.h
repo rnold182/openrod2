@@ -41,8 +41,13 @@ typedef struct {
     int heading;            /* a56a */
     int race;               /* DS:add6: RACE_DRAG, RACE_MULHOLLAND */
     int opp_seg;            /* a9c6: the opponent is drawn when the painter reaches its segment */
+    int fall;               /* DS:7b9c: going over the edge, -1 left / 1 right */
     void (*draw_opponent)(void);
 } RoadView;
+
+/* What the last frame found in front of the car (DS:bb88 / add4: -1 left, 1 right, 0 none). */
+typedef struct { int object, bump; } RoadHits;
+extern RoadHits g_road_hits;
 
 /* 1dcb:062c / 0684: a point `d` units ahead (d = distance in 1/8 segment + 4) at lateral position
  * `lat` and height `h`, `turn` / `rise` being the heading and height differences to it. */

@@ -202,8 +202,18 @@ void sound_hum(int kind)
     sound_voice_note_on(4, kind == SFX_HUM_PART ? 0x52 : 0x55);
 }
 
+static void struck(int voice, const char *timbre, int note)
+{
+    sound_voice_timbre(voice, timbre, 0x7f);
+    sound_voice_note_off(voice);
+    sound_voice_note_on(voice, note);
+    LOCKED(S.timed_left[voice] = 15L * RATE / 1000);    /* let go at once, as the driver does */
+}
+
 void sound_sfx(int sfx)
 {
+    if (sfx == SFX_CRASH) { struck(4, "hitcar", 0x14); struck(5, "crash", 0x19); return; }
+    if (sfx == SFX_BUMP) { struck(4, "hitcar", 0x14); struck(3, "turn", 0x3d + (int)SDL_rand(8)); return; }
     static const struct { const char *timbre; int volume, note; } fx[] = {
         { "turn", 0x75, 0x61 }, { "turn", 0x75, 0x3d }, { "turn1", 0x75, 0x10 }, { "hitcar", 0x70, 0x2e },
     };

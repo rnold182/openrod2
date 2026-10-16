@@ -450,6 +450,47 @@ static void vline(int x, int y0, int y1)               /* 1dcb:3664 */
     for (int y = top; y <= bottom; y++) V->fb[y * SCREEN_W + x] = colour;
 }
 
+static void line(int x0, int y0, int x1, int y1)        /* 1dcb:7de4 -> a0de, clipped to the view */
+{
+    int dx = SDL_abs(x1 - x0), dy = -SDL_abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, e = dx + dy;
+    for (int n = 0; n < 2000; n++) {
+        if (x0 >= CLIP_X0 && x0 <= CLIP_X1 && y0 >= CLIP_Y0 && y0 <= CLIP_Y1) V->fb[y0 * SCREEN_W + x0] = colour;
+        if (x0 == x1 && y0 == y1) break;
+        int e2 = 2 * e;
+        if (e2 >= dy) { e += dy; x0 += sx; }
+        if (e2 <= dx) { e += dx; y0 += sy; }
+    }
+}
+
+/* 1dcb:58f4 -> 7f30 (clip) + a0f6: a filled polygon of n points; `edge` != `fill` outlines it. */
+static void poly(const int *pt, int n, uint8_t fill, uint8_t edge)
+{
+    int top = 1 << 30, bottom = -(1 << 30);
+    for (int k = 0; k < n; k++) { if (pt[2 * k + 1] < top) top = pt[2 * k + 1]; if (pt[2 * k + 1] > bottom) bottom = pt[2 * k + 1]; }
+    if (bottom < CLIP_Y0 || top > CLIP_Y1) return;
+    top = SDL_max(top, CLIP_Y0);
+    bottom = SDL_min(bottom, CLIP_Y1);
+    colour = fill;
+    for (int y = top; y <= bottom; y++) {
+        int lo = 1 << 30, hi = -(1 << 30);
+        for (int k = 0; k < n; k++) {
+            int ax = pt[2 * k], ay = pt[2 * k + 1], bx = pt[2 * ((k + 1) % n)], by = pt[2 * ((k + 1) % n) + 1];
+            if ((y < ay && y < by) || (y > ay && y > by)) continue;
+            int x0, x1;
+            if (ay == by) { x0 = SDL_min(ax, bx); x1 = SDL_max(ax, bx); }
+            else x0 = x1 = ax + (bx - ax) * (y - ay) / (by - ay);
+            if (x0 < lo) lo = x0;
+            if (x1 > hi) hi = x1;
+        }
+        if (lo <= hi) hline(lo, hi, y);
+    }
+    if (edge != fill) {
+        colour = edge;
+        for (int k = 0; k < n; k++) line(pt[2 * k], pt[2 * k + 1], pt[2 * ((k + 1) % n)], pt[2 * ((k + 1) % n) + 1]);
+    }
+}
+#define POLY(n, c, ...) do { const int pt_[] = { __VA_ARGS__ }; poly(pt_, n, c, c); } while (0)
+
 /* ---- the roadside shapes: SR2_SHP, one set per kind (index DS:80a2: offset, size), each set
  * holding the shape at 7 sizes as up to 6 colour layers of horizontal spans (dx, dy, length). */
 typedef struct { uint8_t layers[6][2]; const int8_t *spans; } ShapeSize;
@@ -515,7 +556,7 @@ static void object(int x, int y, int slice, int side, int kind, int below)    /*
  * 102 and the hills at the bottom, and copies rows of it into the view, scrolled sideways with
  * the heading (the city half as fast as the hills). */
 static uint8_t page[SCREEN_W * SCREEN_H];
-static int page_made;
+static int page_made = -1;                             /* the race type it was made for */
 
 static void page_put(Game *g, int id, int y)
 {
@@ -526,11 +567,15 @@ static void page_put(Game *g, int id, int y)
             if (y + r >= 0) page[(y + r) * SCREEN_W + c] = im->pixels[r * im->w + c];
 }
 
-static void make_page(Game *g)                         /* 1dcb:37ce */
+static void make_page(Game *g, int race)               /* 1dcb:37ce */
 {
-    if (page_made) return;
-    page_made = 1;
+    if (page_made == race) return;
+    page_made = race;
     memset(page, 0, sizeof page);
+    if (race == RACE_MULHOLLAND) {                     /* the hills above the city (2056) */
+        page_put(g, 0x808, 0x66);
+        return;
+    }
     page_put(g, 0x7d2, 0x66);
     const Image *hills = game_picture(g, 0x807);
     if (hills) page_put(g, 0x807, 200 - hills->h);
@@ -582,6 +627,31 @@ static void backdrop(const RoadView *rv)
     if (top < 0x12) top = 0x12;
     colour = 9;                                        /* a0e6: the fields */
     for (int y = top; y <= CLIP_Y1; y++) hline(CLIP_X0, CLIP_X1, y);
+}
+
+/* 1dcb:3cca: Mulholland's backdrop is one picture, lifted and lowered with the road ahead. */
+static void backdrop_mulholland(const RoadView *rv)
+{
+    int rise = HT(rv->seg) - HT(rv->seg - 4);
+    if (rise > 8) rise = 8;
+    else if (rise < -8 && !rv->fall) rise = -8;
+    int hz = road_proj_y(rv, 0xf0, 2000, rise);
+    int sy = 0x6e - rise, h = 199 - sy, dy = 0x12, sx = 0;
+    if (h > 0x52) h = 0x53;
+    int a, b;
+    wrap(rv->heading, 2, &a, &b);
+    if (dy < CLIP_Y0) { h += dy - CLIP_Y0; sy += CLIP_Y0 - dy; dy = CLIP_Y0; }
+    if (h + dy > CLIP_Y1) h = CLIP_Y1 - dy;
+    copy_rect(b, h, sx, sy, a, dy);
+    copy_rect(a, h, b, sy, 0, dy);
+    int top = hz + 8;
+    horizon_slice = 14;
+    for (int k = 14; k > 0; k--)
+        if (gy[k] < top) { top = gy[k]; horizon_slice = k; }
+    if (rv->fall && h + 0x12 < 0x65) {
+        colour = 0xe;
+        for (int y = h + 0x12; y <= CLIP_Y1; y++) hline(CLIP_X0, CLIP_X1, y);
+    }
 }
 
 /* ------------------------------------------------------------------ one strip of road (1dcb:4322) */
@@ -654,17 +724,147 @@ static void gantry(int i, int top, int ground, unsigned bits, int f)
     else if (!(f & 1)) object(mid, top, i, 1, bits & 0x4000 ? 0xc : 0xe, 0);
 }
 
+/* ------------------------------------------------------------------ Mulholland's extras */
+
+static int ds_w(int off) { return (int16_t)exe_ds_u16((uint16_t)off); }
+#define T1E(k) ds_w(0x7e1e + 4 * (k))
+#define T20(k) ds_w(0x7e20 + 4 * (k))
+#define T22(k) ds_w(0x7e22 + 4 * (k))
+#define T24(k) ds_w(0x7e24 + 4 * (k))
+#define T3A(k) ds_w(0x7e3a + 4 * (k))
+
+/* 6a32: the hillsides beside the road (colour 14), from the screen edge at the terrain's height to
+ * the shoulder; across a ravine ahead (`bridge`) the drop is drawn as well. side -1 left, 1 right. */
+static void hillside(const RoadView *rv, int i, int side, int bridge)
+{
+    int seg = rv->seg, edge = side < 0 ? 0 : 0x13f, fall = rv->fall;
+    const int *xe = side < 0 ? xl : xr, *xs = side < 0 ? xsl : xsr, *ty = side < 0 ? tly : try_;
+    int off = rv->heading - HD(seg);
+    if (side < 0 ? !(-100 < off) : !(off < 100)) return;
+    if (gy[i - 1] == ty[i - 1]) return;
+    int k = 15 - i, sg = side;                          /* sg turns the ravine's offsets outwards */
+    if (bridge && ty[i] <= gy[i]) {
+        if (i >= 2 && (F(seg + i - 1) & 0x80)) {
+            POLY(6, 0xe, xe[i - 2], 0x65, xe[i - 2], gy[i - 2], xe[i - 1], gy[i - 1], xs[i - 1], gy[i - 1],
+                 xs[i - 1] + sg * T22(k), gy[i - 1], side < 0 ? T3A(k) : 0x13f - T3A(k), 0x65);
+            if (ty[i] < gy[i])
+                POLY(3, 0xe, xs[i - 1], gy[i - 1], xs[i - 1] + sg * (T22(k) / 2), gy[i - 1] - T24(k),
+                     xs[i - 1] + sg * T22(k), gy[i - 1]);
+            else
+                POLY(4, 0xe, xs[i - 1], gy[i - 1], xs[i - 1] + sg * T22(k), gy[i - 1], xs[i] + sg * T22(k), gy[i],
+                     xs[i], gy[i]);
+        }
+        if (ty[i] < gy[i])
+            POLY(4, 0xe, xs[i - 1], gy[i - 1], xs[i - 1] + sg * (T22(k) / 2), gy[i - 1] - T24(k),
+                 xs[i] + sg * (T1E(k) / 2), gy[i] - T20(k), xs[i], gy[i]);
+    }
+    if (bridge) return;
+    if (i == 1 || !(F(seg + i - 1) & 0x80)) {
+        if (xsr[i - 1] <= xsl[i - 1] + 0x1e) return;
+        POLY(4, 0xe, edge, ty[i - 1], xs[i - 1] - fall, gy[i - 1], xs[i] + fall, gy[i], side < 0 ? 0 : 0x140, ty[i]);
+        if (side < 0 ? xs[i - 1] < 1 : xs[i - 1] > 0x13e) return;
+        int tri = i == 1 ? ty[i - 1] < gy[i - 1] : gy[i - 2] == ty[i - 2];
+        if (tri) POLY(3, 0xe, edge, ty[i - 1], xs[i - 1], gy[i - 1], edge, gy[i - 1]);
+    } else {
+        POLY(6, 0xe, edge, ty[i - 1], xs[i - 1], gy[i - 1], xe[i - 1], gy[i - 1], xe[i - 2], gy[i - 2],
+             xe[i - 2], 0x65, edge, 0x65);
+        POLY(4, 0xe, edge, ty[i - 1], xs[i - 1], gy[i - 1], xs[i], gy[i], edge, ty[i]);
+    }
+}
+
+/* 1dcb:51e0: a pile of rocks beside the road (side flag 0x10 on raised ground). */
+static void rocks(int x, int y, int i, int side)
+{
+    int i2 = i + 2;
+    if (i == 0) x += side * 100;
+    if (i == 1) x += side * 0x28;
+    if (i == 2) x += side * 10;
+    int a = ds_w(0x7ed0 + 4 * i), b = ds_w(0x7e9a + 4 * i), up = ds_w(0x7ece + 4 * i), c = ds_w(0x7e9c + 4 * i2);
+    object(x, y, i, side, 8, 1);
+    object(a * side + x, y, i, side, 7, 1);
+    object((a + b) * side + x, y, i, side, 8, 1);
+    object((a >> 1) * side + x, y - up, i2, side, 7, 1);
+    object(((a >> 1) + c) * side + x, y - up, i2, side, 8, 1);
+}
+
+/* 1dcb:69d4: does something this wide at x, in the nearest segment, reach the car's front corners? */
+static int hits_car(int x, int w, int y)
+{
+    if (y > 0x57) {
+        if ((x < 0x65 && x + w > 99) || (x < 0x83 && x + w > 0x81)) return -1;
+        if ((x < 0x140 && x + w > 0x13e) || (x < 0x122 && x + w > 0x120)) return 1;
+    }
+    return 0;
+}
+
+static int rail_start;                                 /* DS:96f4 */
+RoadHits g_road_hits;
+
+/* 6a32's last part for Mulholland: bridge railings (5404 / 555e) and the guard rail. */
+static void mull_rails(const RoadView *rv, int i, int f, int rf)
+{
+    int seg = rv->seg, w = (int16_t)exe_ds_u16((uint16_t)(0x7e52 + 2 * i));
+    colour = 10;
+    if ((f & 0x80) && (F(seg + i - 1) & 0x80)) {         /* 5404: the bridge's sides */
+        int p1 = xl[i - 1], p2 = xr[i - 1], p3 = y19[i - 1] * 4 - gy[i - 1] * 3, p4 = gy[i - 1];
+        int p5 = xl[i], p6 = xr[i], p7 = y19[i] * 4 - gy[i] * 3, p8 = gy[i];
+        int odd = ((seg - i) + 0xe) % 2 != 0 && i < 7;
+        for (int k = w + 1; k != 0; k--) {
+            line(p1 - k, p3, p1 - k, p4);
+            line(p2 + k, p3, p2 + k, p4);
+            line(p1, p3 + k - 1, p2, p3 + k - 1);
+            int a, b;
+            if (!odd) { line(p1 - k, p4, p5 - k, p7); a = p4; b = p7; }
+            else { line(p1 - k, p3, p5 - k, p8); a = p3; b = p8; }
+            line(p2 + k, a, p6 + k, b);
+            line(p1 - k, p3, p5 - k, p7);
+            line(p2 + k, p3, p6 + k, p7);
+            line(p1 - k, p4, p5 - k, p8);
+            line(p2 + k, p4, p6 + k, p8);
+        }
+    }
+    if ((f & 0x80) && !(F(seg + i + 1) & 0x80)) {        /* 555e: where it starts */
+        int top = y19[i] * 4 - gy[i] * 3;
+        for (int k = w + 1; k != 0; k--) {
+            line(xl[i] - k, top, xl[i] - k, gy[i]);
+            line(xr[i] + k, top, xr[i] + k, gy[i]);
+            line(xl[i], top + k - 1, xr[i], top + k - 1);
+        }
+    }
+    if ((rf & 0x8000) && !(f & 0x80)) {                  /* the guard rail on the drop side */
+        if (((rail_start - i) - seg + 0xe) % 2 != 0) {
+            int a = -0x1e / (i + 1) + xsr[i - 1];
+            const int post[] = { a, y195[i - 1] - 1, a, gy[i - 1], xsr[i - 1], gy[i - 1], xsr[i - 1], y195[i - 1] - 1 };
+            poly(post, 4, 5, 2);
+        }
+        const int rail[] = { xsr[i], y19[i], xsr[i], y195[i], xsr[i - 1], y195[i - 1], xsr[i - 1], y19[i - 1] };
+        poly(rail, 4, 5, 5);
+        colour = 2;
+        line(xsr[i], y19[i], xsr[i - 1], y19[i - 1]);
+        line(xsr[i], y195[i], xsr[i - 1], y195[i - 1]);
+    }
+}
+
 /* ------------------------------------------------------------------ the painter (1dcb:6a32) */
 
 void road_draw(Game *g, const RoadView *rv)
 {
     V = &g->video;
     load_shapes(g);
-    make_page(g);
+    make_page(g, rv->race);
     project(rv);
-    backdrop(rv);
     int seg = rv->seg, mul = rv->race == RACE_MULHOLLAND;
+    for (int k = 14; k > 0; k--)
+        if ((R(seg + k) & 0x8000) && !(R(seg + k - 1) & 0x8000)) { rail_start = seg + k; break; }
+    if (mul) backdrop_mulholland(rv);
+    else backdrop(rv);
+    int bridge = bridge_ahead(rv);
+    g_road_hits.object = g_road_hits.bump = 0;
     for (int i = 14; i > 0; i--) {
+        if (mul && !(F(seg + i) & 0x80)) {
+            hillside(rv, i, -1, bridge);
+            hillside(rv, i, 1, bridge);
+        }
         if (i <= horizon_slice) road_strip(rv, i);
         int lf = L(seg + i), rf = R(seg + i), f = F(seg + i);
         int town = f & 1;
@@ -680,7 +880,7 @@ void road_draw(Game *g, const RoadView *rv)
                 if (mul && (lf & 0x800)) object(xl[i], y, i, 1, 3, 0);
                 if (mul && (lf & 0x1000)) object(xl[i], y, i, 1, 6, 0);
                 if ((lf & 1) && flat_l) object(xl[i], y, i, -1, 1, 1);             /* lamp posts */
-                /* 51e0 (Mulholland's cliff posts, side flag 0x10) is not ported yet */
+                if (mul && (lf & 0x10)) rocks(xl[i], y, i, 1);
                 if (!mul || flat_l) {
                     if (lf & 0x40) object(xsl[i], y, i, -1, 10, 0);
                     if (lf & 0x80) {
@@ -714,7 +914,20 @@ void road_draw(Game *g, const RoadView *rv)
                 if (rf & 0x800) object(xr[i], y, i, 1, 3, 0);
                 if (rf & 0x1000) object(xr[i], y, i, -1, 6, 0);
                 if ((rf & 1) && flat_r) object(xr[i], y, i, -1, 1, 1);
-                /* Mulholland's road objects (flags 4 / 0x1000 with DS:665a) are not ported yet */
+                if (mul && (rf & 0x10)) rocks(xr[i], y, i, -1);
+                for (int big = 1; big >= 0; big--) {            /* things lying on the road */
+                    if (!mul || !(f & (big ? 4 : 0x1000))) continue;
+                    int side = OB(seg + i) < 9 ? -1 : 1;
+                    int x = (OB(seg + i) * width >> 4) + xl[i];
+                    object(x, y, i, side, big ? 7 : 0x14, 1);
+                    if (side == 1) side = 0;
+                    int w = big ? 0x28 : 0x32;
+                    if (i == 1) {
+                        int h = hits_car(side * w + x, w, y);
+                        if (big) g_road_hits.object = h;
+                        else g_road_hits.bump = h;
+                    }
+                }
                 if ((f & 0xf000) && !mul) gantry(i, y19[i] * 4 - y * 3, y, (unsigned)(f & 0xf000), f);
                 if (f & 0x100) object(xr[i], y, i, 1, 5, 0);
                 if (f & 0x800) object(xr[i], y, i, 1, 0xf, 0);
@@ -722,6 +935,7 @@ void road_draw(Game *g, const RoadView *rv)
                 if (f & 0x400) object(xr[i], y, i, 1, 0x11, 0);
             }
         }
+        if (mul && !town) mull_rails(rv, i, f, rf);
         if (rv->opp_seg - i == seg && rv->draw_opponent) rv->draw_opponent();
     }
     if (seg == rv->opp_seg && rv->draw_opponent) rv->draw_opponent();

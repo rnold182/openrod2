@@ -40,6 +40,7 @@ struct Game {
     /* Speech-bubble message overlay (1001:3db4). */
     int          msg;           /* message number, 0 = none */
     Uint64       msg_start;
+    char         msg_line2[64]; /* the same for line 2 */
     char         msg_line1[64]; /* replaces line 1 when set (the original sprintf'd into the table) */
     int          msg_sticky;    /* stays up (no timeout, input goes to the dialog below) */
     int          msg_queue[4];  /* shown one after another, like consecutive 1001:3db4 calls */
@@ -70,6 +71,9 @@ void game_set_palette(Game *g, uint16_t ds_table);
 /* Screen palette with a car's paint in registers 6/7 (1001:672c); colour < 0 leaves them as is. */
 void game_set_paint(Game *g, int colour);
 double game_ticks_since(Uint64 ms);
+/* A key held down, by the player or by a test script (--script ms:hold:NAME / ms:release:NAME). */
+int  game_key_held(SDL_Scancode sc);
+void game_script_hold(SDL_Scancode sc, int down);
 
 /* Show message n from SR.EXE's message table in a speech bubble (blocks scene input until dismissed). */
 void game_message(Game *g, int n);

@@ -218,8 +218,50 @@
   size per kind), each kind = count of sizes, 16-byte size records of up to 6 (colour, span count)
   pairs, then spans of 3 signed bytes (dx, dy, length), mirrored for the left side. Palette 1dc8:
   register 1 black road, 9 green grass, 4 white, 10 red.
-- Not ported yet: Mulholland's terrain polygons and cliff posts (58f4, 51e0, 5404/555e bridges), the
-  mirror (0ce4/379e), the town view (bit 0 roads, 52e2 picture objects), Aqueduct (18ec/a094).
+- Mulholland (add6 0x10): backdrop 3cca is one picture (2056 at page row 102) lifted by the rise to 4
+  segments back (+-8), no grass fill; hillsides (colour 14) are polygons in 6a32 from the screen edge
+  at the terrain height to the shoulder (and the ravine before a bridge, tables DS:7e1e/7e22/7e3a);
+  bridges (road flag 0x80) get railings 5404/555e (colour 10), right flag 0x8000 a guard rail
+  (colour 5, posts every other segment from DS:96f4); side flag 0x10 rock piles (51e0, kinds 7/8,
+  tables 7ed0/7e9a/7ece); road flags 4 / 0x1000 put kind 7 / 0x14 on the road at 665a * width / 16,
+  and in the nearest segment 69d4 checks them against the car's corners (DS:bb88 / add4).
+- Not ported yet: the mirror (0ce4/379e), the town view (bit 0 roads, 52e2 picture objects), Aqueduct
+  (18ec/a094).
+
+## Steering, collisions and Mulholland Drive (rebuild race.c)
+- Setup 1001:bc88: drag 200..0x17c, Mulholland 0x172..0x3c0 (Aqueduct 8..0x156); tire wear 300/200
+  (700/400 on Mulholland); a race needs fuel > 6 / > 16 / > 11 and burns 5 / 15 / 10 (car +0x24,
+  b584); time 0x444 / 0x777 / 0x555. Police on Mulholland: 1 in 4 (DS:ab2c, waiting at segment
+  9aca = 0x1e0 + rand(0xf0)) - not ported yet.
+- Steering in the 6 Hz part of the timer interrupt (0001:2e8c): input 3b32 (keys set +-1, mouse adds);
+  if it pushes further, a102 += 2 * input (to +-24), else a102 = 0; no input -> 0. The wheel a104 =
+  a102, springs back by a104/4 + 1 per step. Per frame (1dcb:1774): a56a -= a102/2 + 1 (when moving
+  and |a56a - heading[seg] - a102| < 200); a564 -= ((frame distance / 8 + a10c) * (a56a -
+  heading[seg])) >> 2 (a10c = DS:521e[tire grade * 5 + wear / 2000]); Mulholland clamps a564 to the
+  lanes +-150; a flat tire (past DS:a10a) pulls right 25 per frame. After the finish (and in demo
+  mode) 12ca puts a564 on the road and a56a = the road's heading. Lanes (12ca): 1500..3300, one lane
+  2000..2800 on road flags 0xe0; the same four segments on (985c/a558) for the opponent.
+- Dashboard: wheel pictures DS:78ce[dash * 3 + (0 straight, 1 left, 2 right)] at (0x50, 160), the
+  knob (DS:7e84 shape, spans at 3725:0000) at DS:1c80[a104]; the wheel's top DS:78e0 (pic, x, y)
+  over the view (573e).
+- Collisions 1dcb:148a (6 Hz, after steering), car from a564 - 30 to a564 + 70: hillside (terrain >
+  0 and past lane - 150/4 left, + 150/2 right), off the road (lane -+ 0x104, Mulholland 0x96: falling
+  when the terrain drops, 7da2: 8 frames sliding 100 sideways and sinking, car totaled), bridge rails,
+  posts (road flag 2) and trees (right side flags 0xc0 of the next segment) off the shoulder; on
+  Mulholland also things on the road above 30 mph, rocks, turn-offs above 60, the guard rail above
+  39 (below: bounced back 300, heading +30, speed -10). Any hit: a1bc |= 0x21.
+- The opponent (d4cc/cf9a): lateral a9cc steers 1/8 of the way to an aim: the middle far off,
+  weaving +300/-200 round the middle 3..12 segments ahead, behind you he moves over, beside you he
+  passes or blocks; cf9a looks 6 segments ahead for rocks, gantry posts, objects, you and bridges.
+  He slows to 59 in turn-offs and once per bend to his top speed - 30 (- 3 when behind). d908: right
+  behind him and faster (9a48, from af98) = crash (a1bc |= 3); side by side (picture 0) steering left
+  knocks him back a segment and 10 mph; a rough rival (skill byte +1: rand(((-s - 15) >> 2) + 2) ==
+  0) shoves you 300 right, +-15 heading, two steps of braking.
+- Crash results (b584 + af0a): windshield 2064 over the view (rows 0..89 at 11, the rest at 101), dash
+  edge 2048/2065, corner 2066, past 90 mph also DS:5136's three pieces; pink slips: car gone (msg
+  0x5b, 0x5c with tires); 91+ mph or fallen: totaled, scrap body value / 10 + 19 (msg 0x5d); below 31:
+  msg 0x5e (0x5f + new tires); else dialog 24 (61..90: rand(40) + 100) or 25 (31..60: rand(20) + 100)
+  Fix it (pay) / Junk it (40% of the price). Bets are lost. ac68: tires from the spares, else $50.
 
 ## Rebuild deviations / modern options (planned options menu)
 - Newspaper paging: next page starts at the first ad not fully shown (original repeated one entry).

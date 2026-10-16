@@ -99,7 +99,7 @@ void cheats_run(Game *g, const char *line)
         rivals_always_agree = strcmp(arg, "off") != 0;
         say("Rivals %s", rivals_always_agree ? "take every bet" : "decide for themselves");
     } else if (!strcmp(cmd, "autodrive")) {           /* testing the race */
-        race_autodrive(strcmp(arg, "off") != 0);
+        race_autodrive(!strcmp(arg, "off") ? 0 : !strcmp(arg, "pedals") ? 2 : 1);
         say("Autodrive %s", strcmp(arg, "off") ? "on" : "off");
     } else if (!strcmp(cmd, "anim")) {            /* until the options menu exists */
         if (atoi(arg) > 0) {
@@ -114,6 +114,7 @@ void cheats_run(Game *g, const char *line)
         say("car N / car list    part N / part list");
         say("day N (0 = June 16 .. 91)");
         say("anim [on|off|speed 25..400]   rival N (at Burger's)");
+        say("agree (rivals take any bet)   autodrive [pedals|off]");
     } else if (cmd[0]) {
         say("Unknown: %s (try help)", cmd);
     }

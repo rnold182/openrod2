@@ -11,16 +11,16 @@
 #include "sound.h"
 #include "ui/font.h"
 
-/* --script "ms:key:NAME;ms:text:abc;ms:click:x,y;ms:shot:file.bmp;ms:quit" drives the game for tests. */
+/* --script "ms:key:NAME;ms:hold:NAME;ms:release:NAME;ms:text:abc;ms:click:x,y;ms:shot:file.bmp;ms:quit" drives the game for tests. */
 typedef struct { Uint64 at; char kind[8]; char arg[64]; int done; } ScriptStep;
-static ScriptStep script[64];
+static ScriptStep script[160];
 static int script_len;
 
 static void parse_script(const char *s)
 {
-    char buf[2048];
+    char buf[8192];
     SDL_strlcpy(buf, s, sizeof buf);
-    for (char *tok = strtok(buf, ";"); tok && script_len < 64; tok = strtok(NULL, ";")) {
+    for (char *tok = strtok(buf, ";"); tok && script_len < 160; tok = strtok(NULL, ";")) {
         ScriptStep *st = &script[script_len];
         char *c1 = strchr(tok, ':');
         if (!c1) continue;
@@ -109,6 +109,9 @@ static void run_script(Game *g, Uint64 now)
         if (!strcmp(st->kind, "key")) {
             SDL_Keycode k = SDL_GetKeyFromName(st->arg);
             dispatch_key(g, SDL_GetScancodeFromKey(k, NULL), k);
+        } else if (!strcmp(st->kind, "hold") || !strcmp(st->kind, "release")) {
+            SDL_Keycode k = SDL_GetKeyFromName(st->arg);
+            game_script_hold(SDL_GetScancodeFromKey(k, NULL), st->kind[0] == 'h');
         } else if (!strcmp(st->kind, "text")) {
             if (cheats_active()) cheats_text(g, st->arg);
             else if (g->scene->text && !g->msg) g->scene->text(g, st->arg);

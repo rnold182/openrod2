@@ -43,7 +43,18 @@ static void show(Game *g, int n, const char *line1)
     g->msg = n;
     g->msg_start = SDL_GetTicks();
     SDL_strlcpy(g->msg_line1, line1, sizeof g->msg_line1);
+    g->msg_line2[0] = 0;
     g->msg_sticky = 0;
+}
+
+static uint8_t script_keys[SDL_SCANCODE_COUNT];
+
+void game_script_hold(SDL_Scancode sc, int down) { if (sc > 0 && sc < SDL_SCANCODE_COUNT) script_keys[sc] = (uint8_t)down; }
+
+int game_key_held(SDL_Scancode sc)
+{
+    const bool *ks = SDL_GetKeyboardState(NULL);
+    return sc > 0 && sc < SDL_SCANCODE_COUNT && (ks[sc] || script_keys[sc]);
 }
 
 void game_message(Game *g, int n)
@@ -76,12 +87,16 @@ void game_message_amount(Game *g, int n, long amount, int sticky)
 {
     show(g, n, "");
     g->msg_sticky = sticky;
-    const char *s = exe_ds_str(exe_ds_u16((uint16_t)(MSG_TABLE + n * 6 + 2)));
-    const char *dollar = SDL_strchr(s, '$');
-    if (!dollar) return;
-    const char *rest = dollar + 1;
-    while (*rest >= '0' && *rest <= '9') rest++;
-    SDL_snprintf(g->msg_line1, sizeof g->msg_line1, "%.*s%ld%s", (int)(dollar - s + 1), s, amount, rest);
+    for (int line = 0; line < 2; line++) {     /* the "$123" in whichever line has it */
+        const char *s = exe_ds_str(exe_ds_u16((uint16_t)(MSG_TABLE + n * 6 + 2 + 2 * line)));
+        const char *dollar = SDL_strchr(s, '$');
+        if (!dollar) continue;
+        const char *rest = dollar + 1;
+        while (*rest >= '0' && *rest <= '9') rest++;
+        char *out = line ? g->msg_line2 : g->msg_line1;
+        SDL_snprintf(out, sizeof g->msg_line1, "%.*s%ld%s", (int)(dollar - s + 1), s, amount, rest);
+        return;
+    }
 }
 
 void game_message_short(Game *g, long amount)
@@ -112,6 +127,7 @@ void game_draw_message(Game *g)
     for (int i = 0; i < lines && i < 2; i++) {
         const char *s = exe_ds_str(exe_ds_u16((uint16_t)(MSG_TABLE + n * 6 + 2 + 2 * i)));
         if (i == 0 && g->msg_line1[0]) s = g->msg_line1;
+        if (i == 1 && g->msg_line2[0]) s = g->msg_line2;
         ui_text(&g->video, ((w - font_text_width(s)) >> 1) + x + dx, y + dy + 9 * i, s);
     }
 }

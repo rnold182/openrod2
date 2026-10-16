@@ -40,6 +40,8 @@ enum {
     SFX_CLUNK,      /* slot 14 (118e): "turn" 0x3d - a part sits down */
     SFX_TURN,       /* slot 17 (12e0): "turn1" 0x10 - a bolt is turned */
     SFX_DROP,       /* slot 9 (0ea4): "hitcar" 0x2e - the gearbox comes down */
+    SFX_CRASH,      /* slot 15 (11c6): "hitcar" 0x14 on voice 4 + "crash" 0x19 on voice 5 */
+    SFX_BUMP,       /* slot 16 (1246): "hitcar" 0x14 on voice 4 + "turn" 0x3d..0x44 on voice 3 */
 };
 void sound_sfx(int sfx);
 /* Slot 2 (0dcc): the paint gun, voice 5, held while SR.EXE repainted the garage - here for `ms`. */

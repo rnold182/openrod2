@@ -34,13 +34,15 @@ Put the original files (`SR.EXE`, `LIB1`–`LIB3`, `*.MUS`, `MSR.SND`, `SR2_*`) 
 
 Status: **pre-alpha**. Working: the garage (engine bay, transmission, under the car, tires, paint,
 body work), the newspaper (buying cars and parts), selling, the calendar, saving and loading
-(compatible with the original `HOTROD*.SAV` files), Burger's Bungalow (rivals, challenges, bets) and
-the **drag race**. Not yet: Mulholland Drive and Aqueduct races, the gas station, Grudge Night,
-police, the end of the summer, the options menu.
+(compatible with the original `HOTROD*.SAV` files), Burger's Bungalow (rivals, challenges, bets),
+the **drag race** and **Mulholland Drive** (crashes and repairs included). Not yet: the Aqueduct
+race, the gas station, Grudge Night, police, the end of the summer, the options menu.
 
-Drag race controls: hold **Up** (or the right mouse button) for gas, **Space** / **Enter** (or a left
-click) to shift — up while on the gas, down when off it — and **Down** to brake. Don't jump the
-flag, and don't sit on the rev limiter.
+Race controls: hold **Up** (or the right mouse button) for gas, **Space** / **Enter** (or a left
+click) to shift — up while on the gas, down when off it — and **Down** to brake. Steer with **Left** /
+**Right** (or by moving the mouse): the steering winds up while you hold it, and the car keeps
+sliding until its heading matches the road again, so steer back out of every bend. Don't jump the
+flag, don't sit on the rev limiter, and don't hit the hillside, the rocks or the other car.
 
 Other keys: **F11** or **Alt+Enter** fullscreen, **M** music on/off, **F12** or **`** cheat
 console (`help` lists the commands).
