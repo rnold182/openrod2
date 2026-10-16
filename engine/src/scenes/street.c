@@ -15,6 +15,7 @@
 #define BUNGALOW     0x431      /* 1073: the drive-in at night, your door at the bottom */
 #define SIGN         0x47d      /* 1149: the "look for opponent" sign */
 #define PARK_BOTTOM  0xa8       /* bottom row of a parked rival's car */
+#define CUT_ROWS     8          /* DS:1bde[2]: rows of it the street doesn't show */
 #define DRIVE_SPEED  160.0      /* pixels per second driving in or out */
 #define FIRST_WAIT   0x8c       /* ticks before the first car turns up */
 #define WAIT         0x118      /* ticks between events */
@@ -315,7 +316,13 @@ static void draw_rival(Game *g)
     int body = (mods & 1 ? BODY_FRONT_STRIPPED : 0) | (mods & 2 ? BODY_REAR_STRIPPED : 0) | (mods & 4 ? BODY_ROOF_CHOPPED : 0);
     int tires = (g_models[model].spec1 & 0x30) >> 4;
     game_set_paint(g, rival == KING ? g_models[model].colour : rival_get(p, rival, 0xa));
+    /* 2a21:89fa places the car's bottom at 0xa8 but leaves its last DS:1bde[2] = 8 rows undrawn at
+     * the street, so the wheels end above the window sill. */
+    static uint8_t keep[CUT_ROWS * SCREEN_W];
+    uint8_t *below = &g->video.fb[(PARK_BOTTOM - CUT_ROWS + 1) * SCREEN_W];
+    memcpy(keep, below, sizeof keep);
     car_draw_ex(&g->video, g, model, body, (mods & 0x20) != 0, tires, rolling ? ((int)moved / 6) & 3 : 0, x, PARK_BOTTOM);
+    memcpy(below, keep, sizeof keep);
 }
 
 static void update(Game *g)
