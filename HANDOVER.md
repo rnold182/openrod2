@@ -81,7 +81,7 @@ OpenRod 2 is a from-scratch rebuild of **Street Rod 2** (1990, DOS) in plain C +
    - DS:ab2c: a 1 in 4 chance; the police wait at segment 9aca.
    - The d908 state machine, d85c, the siren (bbb8, sound slot 11).
    - b584's a1bc & 0x40 path: a speeding fine "You have been fined $%2d" (DS:51e7), the 2009 ticket picture, message 0x52.
-2. **The rear-view mirror.** Projection 1dcb:0ce4 (06ba/070e), draw 379e, opponent kinds 9+, clip x 0xf0..0x13f, rows 0x16..0x2a. In the Aqueduct: 1b02 / 9ce8 / 57a6 / a92a and the reversed table 628e.
+2. **The rear-view mirror.** Projection 1dcb:0ce4 (06ba/070e), draw 379e, opponent kinds 9+, clip x 0xf0..0x13f, rows 0x16..0x2a. In the Aqueduct: 1b02 / 9ce8 / 57a6 / a92a and the reversed table 628e. After the start the original shows the starter lady shrinking behind you, in the mirror and through the side window (a92a, picture table at DS:9a2a; seen in DOSBox screenshots).
 3. **Race aftermath.** The King losing (1001:a51c), and the opponent's small rear views: the original uses pre-scaled copies (scale bytes from SR2_DATA via 37ce's a0ea calls, DS:aaa4 records), the rebuild still scales them by 12/d.
 4. **The gas station.** Garage "Wanna tank?" hotspot id 15, mode 3, 3925:2104, dialog 22.
 5. **Grudge Night.** Id 17, Wednesdays only (63e0() % 7 == 2), $30, fuel > 23, mode 4, 3925:1970 (race types 2/4 use tables 60be/61a6/6572).
