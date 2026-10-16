@@ -7,6 +7,7 @@
 #include "data.h"
 #include "game.h"
 #include "rivals.h"
+#include "road.h"
 
 void player_new(Player *p, const char *name)
 {
@@ -19,7 +20,7 @@ void player_new(Player *p, const char *name)
     p->ads_available = 42;
     p->header_raw[0x28] = p->header_raw[0x29] = 1;     /* DS:aa00 / aa01 (1001:5400) */
     memcpy(p->rivals, data_rivals_initial(), sizeof p->rivals);
-    p->word_7dfe = 100;
+    road_new_world(p);                                  /* DS:a9f8 and 7dfe (1dcb:2866 / 24d8) */
     rivals_new_game(p);                                 /* 1001:534c */
 }
 

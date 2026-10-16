@@ -25,6 +25,7 @@ add_executable(openrod2 WIN32
     src/anim.c
     src/save.c
     src/rivals.c
+    src/road.c
     src/scenes/street.c
     src/scenes/race.c
     src/scenes/files.c

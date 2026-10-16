@@ -3,9 +3,8 @@
  *
  * Timing as in SR.EXE on a fast PC: one frame per BIOS tick (18.2 Hz), the engines step every third
  * frame (the interrupt's 4 x 3 divider of the 72.8 Hz clock), distance per frame from table DS:8016.
- * The engine models, the opponent's driving, the start and the result are ports. The road picture is
- * the rebuild's own perspective drawing (the original's renderer, segment 0dcb, isn't ported yet);
- * it uses the original pictures for the sky, the hills, the dashboards, the gauges and the cars. */
+ * The engine models, the opponent's driving, the start, the result and the road view (road.c) are
+ * ports. */
 #include <math.h>
 #include <string.h>
 
@@ -14,6 +13,7 @@
 #include "../game.h"
 #include "../options.h"
 #include "../rivals.h"
+#include "../road.h"
 #include "../sound.h"
 #include "../ui/font.h"
 #include "race.h"
@@ -425,6 +425,7 @@ static void enter(Game *g)
     G = g;
     you = player_car(&g->player);
     engine_setup(&me, you);
+    road_build(&g->player);
     static Car stock;
     car_make_stock(&stock, rival_model(&g->player, rival), 0, 0);
     engine_setup(&opp, &stock);
@@ -562,11 +563,9 @@ static void result_screen(void)        /* 1001:b256: dialog 23 */
     }
 }
 
-/* The windshield view uses the original's projection (0dcb:062c / 0684): a point at lateral position
- * `lat` and height `h`, d units ahead (d = distance in 1/8 segment + 4), sits at
- *   x = 160 - (camera - lat) * 4 / d,   y = 60 + (h - 1900) * 4 / d.
- * The road surface is at height 2000, its edges at 1500 and 3300, the centre line at 2400; you
- * drive at 2560 (DS:a564), the opponent at 2200 (a9cc). The view is clipped to rows 18..101. */
+/* The windshield view is road.c's port of the original renderer; the cars and the starter are
+ * drawn here. You drive at 2560 (DS:a564) with your eyes at 1900 (a566), the opponent at 2200
+ * (a9cc). The view is clipped to rows 18..101. */
 #define CAM_X     0xa00
 #define CAM_H     0x76c
 #define GROUND    2000
@@ -574,8 +573,8 @@ static void result_screen(void)        /* 1001:b256: dialog 23 */
 #define CLIP_TOP  0x12
 #define CLIP_LAST 0x65
 
-static int proj_x(int d, int lat) { return 160 - (CAM_X - lat) * 4 / (d ? d : 1); }
-static int proj_y(int d, int h) { return (h - CAM_H) * 4 / (d ? d : 1) + 60; }
+static RoadView view;
+static int road_seg(int s) { return SDL_clamp(s, 0, ROAD_SEGS - 1); }
 
 /* Copy part of a picture (colour 0 transparent for sprites), clipped to the view. */
 static void blit_clip(const Image *im, int sx, int sy, int w, int h, int dx, int dy)
@@ -614,29 +613,6 @@ static void blit_scaled(const Image *im, int dx, int dy, int w, int h)
     }
 }
 
-static uint8_t reg(int ega) { int r = ui_find_register(&G->video, ega); return (uint8_t)(r < 0 ? 0 : r); }
-
-static void draw_road(void)
-{
-    Video *v = &G->video;
-    uint8_t asphalt = reg(8), white = reg(15), red = reg(4), yellow = reg(14);
-    double travelled = pos * 64.0 + sub;
-    for (int y = 61; y <= CLIP_LAST; y++) {
-        double d = (GROUND - CAM_H) * 4.0 / (y - 60);                  /* the row's distance */
-        double ahead = (d - 4) * 8;                                    /* in 1/64 segment */
-        int xl = (int)(160 - (CAM_X - 1500) * 4 / d), xr = (int)(160 - (CAM_X - 3300) * 4 / d);
-        int xc = (int)(160 - (CAM_X - 2400) * 4 / d), kerb = (int)(60 * 4 / d) + 1;
-        double at = (travelled + ahead) / 64.0;                        /* segment under this row */
-        int stripe = (int)floor(at) & 1;
-        video_fill(v, xl - kerb, y, kerb, 1, stripe ? white : red);
-        video_fill(v, xr, y, kerb, 1, stripe ? white : red);
-        video_fill(v, xl, y, xr - xl, 1, asphalt);
-        if ((int)floor(at * 2) & 1) video_fill(v, xc - kerb / 4, y, kerb / 2 + 1, 1, yellow);
-        if (fabs(at - (START_SEG + 1)) < 0.1 || fabs(at - FINISH_SEG) < 0.1)
-            video_fill(v, xl, y, xr - xl, 1, white);                   /* start and finish lines */
-    }
-}
-
 /* 0dcb:af98: which picture of the opponent shows, from how far ahead (1/64 segment) and which side:
  * 0 side view through the side window, 1 big rear view ahead to one side, 2 medium rear view,
  * 3..8 the medium view smaller and smaller, 9.. behind you (the mirror, not drawn yet). */
@@ -665,7 +641,8 @@ static void draw_opponent(void)
     int d = SDL_abs(ahead) >> 3;
     if (kind == 0) d += 0x10;
     d += 4;
-    int x = proj_x(d, OPP_X), y = proj_y(d, GROUND);
+    int x = road_proj_x(&view, d, OPP_X, view.heading - g_road.heading[road_seg(opp_pos)]);
+    int y = road_proj_y(&view, d, GROUND, g_road.height[road_seg(pos)] - g_road.height[road_seg(opp_pos)]);
     game_set_paint(G, rival == KING ? g_models[rival_model(p, rival)].colour : rival_get(p, rival, 0xa));
     if (kind == 0) {                                                   /* the car beside you, cut by the pillar */
         const Image *im = game_picture(G, side_pic);
@@ -761,11 +738,10 @@ static void update(Game *g)
     game_set_palette(g, PAL_INCAR);
     if (you) game_set_paint(g, you->colour);
     video_clear(v, 0);
-    game_draw_picture(g, 0x7d2, 0, 2);                                 /* the city at night */
-    game_draw_picture(g, 0x807, 0, 63);                                /* hills and fields */
-    draw_road();
+    view = (RoadView){ pos, sub, CAM_X, CAM_H, 0, RACE_DRAG, opp_pos, draw_opponent };
+    if (pos > FINISH_SEG) view.heading = g_road.heading[road_seg(pos)];          /* 1dcb:12ca steers you on */
+    road_draw(g, &view);
     draw_starter();
-    draw_opponent();
     if (you) game_set_paint(g, you->colour);
     game_draw_picture(g, 0x7dd, 0, 0);                                 /* roof and mirror */
     draw_dash();

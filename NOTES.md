@@ -179,8 +179,47 @@
   The acceptance message is read at Burger's before the race screen appears.
 - Race screen: palette 1dc8, 2013 roof at top, dashboard by model (patch[0] high byte: 0 -> 2011,
   1 -> 2019, 2 -> 2012) at y 100, gauge centres DS:1c0a/1c10 (tach) and 1c22/1c28 (speedo), gear plate
-  table DS:1cd0 at (0x108, 0x27). Opponent pictures SR2_DATA -> DS:aa9e (patch[0] low byte). The road rows use
-  the original projection, drawn flat by the rebuild (the 0dcb road renderer with curves isn't ported).
+  table DS:1cd0 at (0x108, 0x27). Opponent pictures SR2_DATA -> DS:aa9e (patch[0] low byte). The road is
+  road.c (see "The roads").
+
+## The roads (segment 0dcb; rebuild road.c)
+- Tables in far segment 0x3726 (DS:86f8.. hold it), one word per segment, 0x3de segments: 27b6 left side
+  flags, 2f72 right side flags, 372e heading, 3eea road flags, 46a6 height, 5146 / 5902 terrain height
+  left / right, 665a object position; 4e62 (Aqueduct) and 60be/61a6/6572 (copies of 0xc0.. for race
+  types 2/4). Built at a new game (2866(1) + 24d8(100)) and at every load (2866(0) + 24d8(DS:7dfe)):
+  the random state 2a21:6180 (state = state * 0x015a4e35 + 1, ((state >> 16) & 0x7fff) % n) is saved
+  in the player block at DS:a9f8 after the town part, so a load rebuilds the same roads; DS:7dfe picks
+  one of 10 layouts of 13 pieces (DS:7c3e): 1/4/6 right bend (1d04), 2/3/5 left (1dfa), 7/8 turn-offs
+  (217e/23d4, only where the terrain differs), 9 bridge (2282, terrain -500, one lane), 10/11 S-bends
+  (1eea/2034). Bends turn the heading 7 per segment (6 + 1; DS:96ac, 5 + 1 on slow PCs). Hills: the drag
+  strip gets one hump (DS:7c1c up and down at 0xdc and 0x101), past it the height changes by DS:7d42
+  per 10 segments. Terrain beside the road rises/falls 200 per segment over 380..399 / 400..419 /
+  500..519 / 600..619 / 700..719. Scenery flags come from the random state (2866, chances scaled by
+  DS:add8 = 1 on slow PCs). The town part (segments 0..0xb3) is only built in a new game.
+- Road flags: low byte 0x80 one lane (edges 2000/2800), 0x20/0x40 road turns off, 8 centre dash, 0x10
+  white line (0x17b drag finish, 0x3bf Mulholland), 2 roadside post (kind 9), 4 / 0x1000 object at
+  665a; high byte 0x100 kind 5, 0x200/0x400 bend signs (kinds 0x10/0x11), 0x800 bridge sign (0xf),
+  0xf000 a gantry over the road (55ce) with sign kind 0xd / 0xc / 0xe. Side flags: 1 lamp post (kind 1),
+  4/8 kinds 7/8 at the edge, 0x20 kind 0, 0x40 kind 10, 0x80 kind 0xb (2: far out, 3 sizes smaller),
+  0x100 kind 4 (0x200 farther), 0x800/0x1000 turn-off signs (3/6), right 0x2000/0x4000 S-bend signs
+  (0x12/0x13). Objects are drawn for the nearest 10 segments only, sizes clamp(9 - slice, 0, 6).
+- Projection 07e4 per frame: slice 0 at d 4, slices 1..14 at d = 12 - sub/8 + 8(i - 1), slice 14 at
+  116; per slice x of the road edges (1500/3300), shoulders (1500 - 400 / 3300 + 400, Mulholland 200),
+  far out (-100 / 4900), ground y and terrain y, with turn = a56a - heading[seg + i] and rise =
+  height[seg] - height[seg + i] (x += turn, y += 2 rise). 0ce4 does the same for the mirror.
+- Backdrop 3e66: spare page with the city 2002 at row 102 and the hills 2055 at the bottom (37ce);
+  horizon hz = y(d 0xf0, rise to the previous segment) clamped 0x13..0x51 (0x12 becomes 0x52!); city
+  rows 184-hz.. into rows 18..hz-13 scrolled by heading*2, hills rows 163..182 at hz-12 scrolled by
+  heading*4 (8-pixel steps); grass (colour 9) from the highest road point below hz+8 down; road
+  strips beyond that crest are not drawn.
+- Painter 6a32, slices 14 -> 1: road strip 4322 (rows between the slice and the next nearer one: grass
+  9, road 1 or white 15, centre dash 4 of width DS:7e52[slice]), then the roadside objects (5158 ->
+  4154), then the opponent (af98) when he is on that segment. Shapes: SR2_SHP, index DS:80a2 (offset,
+  size per kind), each kind = count of sizes, 16-byte size records of up to 6 (colour, span count)
+  pairs, then spans of 3 signed bytes (dx, dy, length), mirrored for the left side. Palette 1dc8:
+  register 1 black road, 9 green grass, 4 white, 10 red.
+- Not ported yet: Mulholland's terrain polygons and cliff posts (58f4, 51e0, 5404/555e bridges), the
+  mirror (0ce4/379e), the town view (bit 0 roads, 52e2 picture objects), Aqueduct (18ec/a094).
 
 ## Rebuild deviations / modern options (planned options menu)
 - Newspaper paging: next page starts at the first ad not fully shown (original repeated one entry).
