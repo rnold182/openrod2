@@ -39,10 +39,12 @@ typedef struct {
     int seg, sub;           /* DS:a55e, a560 (1/64 segment) */
     int x, h;               /* a564 lateral position, a566 eye height */
     int heading;            /* a56a */
-    int race;               /* DS:add6: RACE_DRAG, RACE_MULHOLLAND */
+    int race;               /* DS:add6: RACE_DRAG, RACE_MULHOLLAND, RACE_AQUEDUCT */
     int opp_seg;            /* a9c6: the opponent is drawn when the painter reaches its segment */
     int fall;               /* DS:7b9c: going over the edge, -1 left / 1 right */
     void (*draw_opponent)(void);
+    int speed;              /* a100: your speed (the Aqueduct's middle stripe slows you) */
+    int autopilot;          /* DS:9730 / 1f82: demo or autodrive (no sliding down the Aqueduct's walls) */
 } RoadView;
 
 /* What the last frame found in front of the car (DS:bb88 / add4: -1 left, 1 right, 0 none). */
@@ -56,5 +58,37 @@ int road_proj_y(const RoadView *rv, int d, int h, int rise);
 
 /* 1dcb:07e4 + 3e66 + 6a32: sky, hills, road and everything beside it, back to front. */
 void road_draw(Game *g, const RoadView *rv);
+
+/* ------------------------------------------------------------------ the Aqueduct (add6 8) */
+
+/* A concrete channel with sloping walls; its own table (DS:4e62 in the far segment, 1dcb:33ac),
+ * one word per segment: 1 a joint across the channel, 2 a crossing over the middle stripe, 4 / 8
+ * (0x100 / 0x200 bigger) things on the left / right wall, 0x10 a block in the middle, 0x20 / 0x40
+ * bushes on the walls, 0x80 bridge pillars, 0x400 the finish line. */
+#define AQ_SEGS 0x172
+extern uint16_t g_aqueduct[AQ_SEGS];
+
+/* The view's state from one frame to the next (1dcb:18ec / a094 / 9d9c / 9e4e / 9f08 / 9f9a). */
+typedef struct {
+    int bank;               /* 9e70: the view tilts on the walls (degrees) */
+    int roll;               /* b8bc: added to it while the car rolls over (1dcb:a1c0) */
+    int lift;               /* 9a56: the picture moved down (1dcb:0684) */
+    int pitch, pitch_prev, bank_prev;   /* b7b0, 9e68, b868 */
+    int side_l, side_r, prev_l, prev_r; /* 9758, 9868, a7e8, aaf2: the car's edges against the stripe */
+    int floor, left, right, top, wall_l, wall_r;   /* 985e, a2b8, a7a6, a5fa, 9a5a, 9b14 */
+    int s_floor, s_left, s_right, s_top;           /* aa9c, b8be, bb8a, b8e6: their last values */
+    int hits;               /* a7d2: what the car runs into, found while drawing (862a / 8674) */
+    int slide, slow;        /* the frame's a564 += slide (sliding down a wall) and a100 -= slow */
+    int abs_bank, variant;  /* b190, ad68: which of the 7 pre-turned shapes to draw */
+    int car_l, car_r;       /* 9ac8 / 9a58: the car's left and right sides (a564 - 0x6e, + 0x208) */
+} AqView;
+extern AqView g_aq;
+
+void road_aq_reset(void);                              /* the part of 1dcb:8840 that clears it */
+/* 1dcb:a2d8: would the car run into the block or the pillars of `flags` just ahead (8674 bits)? */
+int  road_aq_ahead(const RoadView *rv, unsigned flags);
+/* 1dcb:0379: turn a point of the Aqueduct view with its tilt (after a frame was drawn). */
+void road_aq_rotate(int x, int y, int *ox, int *oy);
+int  road_aq_sin(int deg);                             /* 1dcb:02b4: sin * 255 */
 
 #endif

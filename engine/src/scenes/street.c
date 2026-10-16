@@ -111,12 +111,6 @@ static void race_agreed(Game *g, int stake)
 {
     (void)g;
     end_negotiation();
-    if (race_type == RACE_AQUEDUCT) {
-        SDL_Log("street: Aqueduct race not rebuilt yet");
-        SDL_strlcpy(status, "The Aqueduct isn't rebuilt yet", sizeof status);
-        leave();
-        return;
-    }
     race_pending = race_type;
     race_stake = stake;
 }

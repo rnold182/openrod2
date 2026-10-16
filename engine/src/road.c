@@ -10,6 +10,10 @@
 #include "rivals.h"
 
 RoadTrack g_road;
+uint16_t g_aqueduct[AQ_SEGS];
+AqView g_aq;
+static void build_aqueduct(void);
+static void load_aq_shapes(size_t len);
 
 /* ------------------------------------------------------------------ the game's random numbers */
 
@@ -348,6 +352,7 @@ void road_build(Player *p)
     build_scenery();
     if (p->word_7dfe < 0 || p->word_7dfe > 9) p->word_7dfe = (int16_t)orand(10);
     build_layout(p->word_7dfe);
+    build_aqueduct();
     if (SDL_getenv("SR2_DEBUG"))
         for (int i = 200; i < 0x17c; i++)
             if (F(i) & 0xf000) SDL_Log("road: gantry over segment %d", i);
@@ -359,6 +364,7 @@ int road_proj_x(const RoadView *rv, int d, int lat, int turn_)
 {
     int16_t t = (int16_t)(turn_ * d);
     int cam = rv->x;
+    if (rv->race == RACE_AQUEDUCT) cam = SDL_clamp(cam, 0x564, 0xd5c);
     if (d == 0) d = 1;
     int16_t a = (int16_t)((int16_t)(cam - (int16_t)(lat + (t >> 2))) * 4);
     return -(a / d - 0xa0);
@@ -369,7 +375,7 @@ int road_proj_y(const RoadView *rv, int d, int h, int rise)
     uint16_t u = (uint16_t)(rise * d);
     if (d == 0) d = 1;
     int16_t a = (int16_t)(uint16_t)((u & 0xfffe) * 2 + (h - rv->h) * 4);
-    return a / d + 0x3c;
+    return a / d + g_aq.lift + 0x3c;                   /* 9a56: the Aqueduct's roll-over */
 }
 
 /* The 15 distances of the view: [0] at d 4, then one per segment ahead. */
@@ -527,6 +533,7 @@ static void load_shapes(Game *g)
         }
         sh->sizes = n;
     }
+    load_aq_shapes(len);
 }
 
 static void draw_shape(int x, int y, int size, int kind, int side)     /* 1dcb:4154 */
@@ -847,10 +854,13 @@ static void mull_rails(const RoadView *rv, int i, int f, int rf)
 
 /* ------------------------------------------------------------------ the painter (1dcb:6a32) */
 
+static void aq_draw(const RoadView *rv);
+
 void road_draw(Game *g, const RoadView *rv)
 {
     V = &g->video;
     load_shapes(g);
+    if (rv->race == RACE_AQUEDUCT) { aq_draw(rv); return; }
     make_page(g, rv->race);
     project(rv);
     int seg = rv->seg, mul = rv->race == RACE_MULHOLLAND;
@@ -939,4 +949,582 @@ void road_draw(Game *g, const RoadView *rv)
         if (rv->opp_seg - i == seg && rv->draw_opponent) rv->draw_opponent();
     }
     if (seg == rv->opp_seg && rv->draw_opponent) rv->draw_opponent();
+}
+
+/* ================================================================== the Aqueduct (add6 8) */
+
+
+/* 1dcb:33ac (called from 24d8): the channel's table. */
+static void build_aqueduct(void)
+{
+    uint16_t *t = g_aqueduct;
+    for (int i = 6; i < AQ_SEGS; i += 0x18) t[i] = t[i - 1] = t[i - 2] = t[i - 3] = 2;     /* crossings */
+    for (int i = 1; i < AQ_SEGS; i += 6) t[i] |= 1;                                        /* joints */
+    static const int16_t block[] = { 4, 0x4c, 0xdc, 0x13c, 0x16c }, pillars[] = { 0x7c, 0x10c };
+    static const int16_t bush_l[] = { 5, 0x22, 0x3b, 0x64, 0xb3, 0xd6, 0x142 };
+    static const int16_t bush_r[] = { 0x17, 0x52, 0x82, 0x9b, 0xee, 0x106, 0x166 };
+    for (int k = 0; k < 5; k++) t[block[k]] |= 0x10;
+    for (int k = 0; k < 2; k++) t[pillars[k]] |= 0x80;
+    for (int i = 0x12; i < AQ_SEGS; i += 0x18) t[i - 1] |= 4;
+    t[0x89] = (uint16_t)((t[0x89] & ~4) | 0x100);
+    t[0x119] = (uint16_t)((t[0x119] & ~4) | 0x100);
+    for (int i = 0x12; i < AQ_SEGS; i += 0x18) t[i - 2] |= 8;
+    t[0x88] = (uint16_t)((t[0x88] & ~8) | 0x200);
+    t[0x118] = (uint16_t)((t[0x118] & ~8) | 0x200);
+    for (int k = 0; k < 7; k++) { t[bush_l[k]] |= 0x20; t[bush_r[k]] |= 0x40; }
+    t[0x155] |= 0x400;                                 /* the finish line */
+}
+
+/* The table's neighbour in the far segment is the left terrain table (5146), which a car past the
+ * end of the channel reads. */
+static unsigned T(int i) { return i < 0 ? 0 : i < AQ_SEGS ? g_aqueduct[i] : (uint16_t)GL(i - AQ_SEGS); }
+
+void road_aq_reset(void)
+{
+    memset(&g_aq, 0, sizeof g_aq);
+    g_aq.variant = 3;
+}
+
+int road_aq_sin(int a)                                 /* 1dcb:02b4, table DS:1504 */
+{
+    if (a < -0x167) a += 0x168;
+    if (a > 0x167) a -= 0x168;
+    int neg = a < 0;
+    if (neg) a = -a;
+    if (a > 0x59) {
+        if (a < 0xb4) a = 0xb4 - a;
+        else if (a < 0x10e) { a -= 0xb4; neg = !neg; }
+        else if (a < 0x168) { a = 0x168 - a; neg = !neg; }
+        else a = 0;
+    }
+    const uint8_t *s = exe_ds(0x1504, 91);
+    int v = s ? s[a] : 0;
+    return neg ? -v : v;
+}
+
+/* ---- projection (1dcb:18ec) */
+
+/* By distance (index 0 nearest at d 4, 14 farthest): floor y (9ef0), floor edges (9a5c / a2e2),
+ * the middle (a5a8), wall top y (a300) and wall tops (ab2e / ab5e). */
+static int A_fy[15], A_xl[15], A_xr[15], A_xc[15], A_ty[15], A_wl[15], A_wr[15];
+static int st_nl, st_nr, st_fl, st_fr, st_ny, st_fy;  /* the stripe: b16e / b872 near, b7ea / b8d8 far, ada6 / b162 */
+static int car_sl, car_sr;                             /* a2b6 / a55a: the car's sides on the screen */
+static int piv_x, piv_y, sinv, cosv;                   /* a7a8 / a7cc, a540 / ba90 */
+
+static int aq_px(const RoadView *rv, int d, int lat) { return road_proj_x(rv, d, lat, rv->heading); }
+static int aq_py(const RoadView *rv, int d, int h) { return road_proj_y(rv, d, h, -g_aq.pitch); }   /* 986a = a56c (0) - b7b0 */
+
+static void aq_project(const RoadView *rv)
+{
+    AqView *q = &g_aq;
+    int c = (q->right + q->left + 0x12c0) >> 1;
+    st_nl = aq_px(rv, 4, c + q->left - 0x28);
+    st_nr = aq_px(rv, 4, q->right + c + 0x28);
+    q->car_l = rv->x - 0x6e;                           /* 9ac8 / 9a58 */
+    q->car_r = rv->x + 0x208;
+    car_sl = aq_px(rv, 4, q->car_l);
+    car_sr = aq_px(rv, 4, q->car_r);
+    int s8 = rv->sub < 0 ? -((-rv->sub) >> 3) : rv->sub >> 3, d = 4;
+    for (int i = 0; i < 15; i++) {
+        if (i == 1) d = 0xc - s8;
+        if (i == 12) d += s8;
+        A_fy[i] = aq_py(rv, d, q->floor + 2000);
+        A_xl[i] = aq_px(rv, d, q->left + 0x5c8);
+        A_xr[i] = aq_px(rv, d, q->right + 0xcf8);
+        A_xc[i] = aq_px(rv, d, c + q->right);
+        A_ty[i] = aq_py(rv, d, q->top + 0x67c);
+        A_wl[i] = aq_px(rv, d, q->wall_l + 0x438);
+        A_wr[i] = aq_px(rv, d, q->wall_r + 0xe88);
+        if (i < 14) d += 8;
+    }
+    st_fl = aq_px(rv, d, c + q->left - 0x28);
+    st_fr = aq_px(rv, d, c + q->right + 0x28);
+    st_ny = A_fy[0];
+    st_fy = A_fy[14];
+}
+
+/* ---- the tilt: on a wall (9d9c left, 9e4e right), over the middle stripe (9f08), 9f9a */
+
+static void aq_wall_left(const RoadView *rv)          /* 1dcb:9d9c */
+{
+    AqView *q = &g_aq;
+    piv_x = A_xl[14];
+    int v = 0x5c8 - q->car_l;
+    if (q->car_l < 0x514) v = 0xb4;
+    q->bank = v * 0x6c / 400;
+    q->left = q->right = q->wall_r = v >> 2;
+    q->floor = v - (v >> 3);
+    if (!rv->autopilot) q->slide += 0xf;               /* sliding back down */
+    if (q->car_l < 0x514) {
+        if (!rv->autopilot) q->slide += 0x19;
+        int u = 0x514 - q->car_l;
+        q->wall_l = u > 200 ? 200 : u;
+        q->left += q->wall_l;
+        q->floor += q->wall_l;
+        q->top = u > 200 ? 200 : u;
+    }
+}
+
+static void aq_wall_right(const RoadView *rv)               /* 1dcb:9e4e */
+{
+    AqView *q = &g_aq;
+    piv_x = A_xr[14];
+    int v = q->car_r - 0xcf8;
+    if (q->car_r > 0xd80) v = 0x88;
+    q->bank = v * -0x5a / 400;
+    q->right = v * -3;
+    q->floor = q->wall_r = v - (v >> 2);
+    q->top = (v >> 2) - v;
+    q->left += v * -2;
+    q->wall_l += v * -2;
+    if (!rv->autopilot) q->slide -= 0xf;
+    if (q->car_r > 0xd80) {
+        if (!rv->autopilot) q->slide -= 0x19;
+        /* (a56a += 1 when DS:7fcc is set: it never is) */
+        q->wall_r += 0xd80 - q->car_r;
+        q->right += 0xd80 - q->car_r;
+        q->top += q->car_r - 0xd80;
+        q->floor += q->car_r - 0xd80;
+    }
+}
+
+static int stripe_side(int x) { return x < st_nl ? -1 : st_nr < x ? 1 : 0; }
+
+static void aq_stripe(const RoadView *rv)             /* 1dcb:9f08: bumping over the middle */
+{
+    AqView *q = &g_aq;
+    if (T(rv->seg) & 2) return;                        /* a crossing */
+    q->side_l = stripe_side(car_sl);
+    q->side_r = stripe_side(car_sr);
+    if (q->side_l == 0 || q->prev_l + q->side_l == 0) q->bank = -4;
+    if (q->side_r == 0 || q->prev_r + q->side_r == 0) q->bank = 4;
+    if (q->bank && rv->speed > 10) q->slow += 2;
+}
+
+static void aq_tilt(void)                              /* 1dcb:9f9a */
+{
+    AqView *q = &g_aq;
+    q->bank += q->roll;
+    if (q->bank > 0x167) q->bank -= 0x168;
+    if (q->bank < -0x167) q->bank += 0x168;
+    int a = SDL_abs(q->bank);
+    q->abs_bank = a;
+    q->variant = a >= 0x1f ? 0 : a >= 0x10 ? 1 : a >= 8 ? 2 : 3;
+    if (q->bank < 0) q->variant = 6 - q->variant;
+    int d = q->bank - q->bank_prev, p;
+    if (d >= 8) p = 3;
+    else if (d >= 6) p = 2;
+    else if (d >= 4) p = 1;
+    else if (d < -7) p = -3;
+    else if (d < -5) p = -2;
+    else if (d < -3) p = -1;
+    else p = 0;
+    if (q->bank < 0) p = -p;
+    if (SDL_abs(p - q->pitch_prev) > 1) p = (q->pitch_prev + p) >> 1;
+    q->pitch = p;
+    q->bank_prev = q->bank;
+    q->pitch_prev = p;
+    q->prev_l = q->side_l;
+    q->prev_r = q->side_r;
+}
+
+static void rot(int x, int y, int *ox, int *oy)       /* 1dcb:0379 */
+{
+    int16_t dx = (int16_t)(x - piv_x), dy = (int16_t)(y - piv_y);
+    *ox = (int16_t)(((int32_t)dx * cosv) >> 8) + (int16_t)(((int32_t)dy * sinv) >> 8) + piv_x;
+    *oy = (int16_t)(((int32_t)dy * cosv) >> 8) + (int16_t)(((int32_t)-dx * sinv) >> 8) + piv_y;
+}
+
+void road_aq_rotate(int x, int y, int *ox, int *oy) { rot(x, y, ox, oy); }
+
+/* ---- polygons: 7f30 clips to the view (Sutherland-Hodgman), a0f6 fills */
+
+static int y_at(int x1, int y1, int x2, int y2, int x)    /* 1dcb:0350 */
+{
+    if (x2 == x1) return y2;
+    return (int16_t)((int32_t)(int16_t)(x - x1) * (int16_t)(y2 - y1) / (int16_t)(x2 - x1)) + y1;
+}
+
+static int x_at(int x1, int y1, int x2, int y2, int y)    /* 1dcb:0327 */
+{
+    if (y2 == y1) return x2;
+    return (int16_t)((int32_t)(int16_t)(y - y1) * (int16_t)(x2 - x1) / (int16_t)(y2 - y1)) + x1;
+}
+
+static int inside(const int *p, int e)
+{
+    return e == 0 ? p[0] >= CLIP_X0 : e == 1 ? p[0] <= CLIP_X1 : e == 2 ? p[1] >= CLIP_Y0 : p[1] <= CLIP_Y1;
+}
+
+static int clip(const int *in, int n, int *out)        /* 1dcb:7f30 */
+{
+    int buf[2][2 * 24];
+    const int *src = in;
+    for (int e = 0; e < 4; e++) {
+        int *dst = e == 3 ? out : buf[e & 1], m = 0;
+        for (int k = 0, j = n - 1; k < n && m < 22; j = k++) {
+            const int *p = src + 2 * j, *c = src + 2 * k;
+            int pin = inside(p, e), cin = inside(c, e);
+            if (!pin && !cin) continue;
+            if (!pin || !cin) {
+                int edge = e == 0 ? CLIP_X0 : e == 1 ? CLIP_X1 : e == 2 ? CLIP_Y0 : CLIP_Y1;
+                if (e < 2) { dst[2 * m] = edge; dst[2 * m + 1] = y_at(p[0], p[1], c[0], c[1], edge); }
+                else { dst[2 * m] = x_at(p[0], p[1], c[0], c[1], edge); dst[2 * m + 1] = edge; }
+                m++;
+                if (pin || !cin) continue;
+            }
+            dst[2 * m] = c[0];
+            dst[2 * m + 1] = c[1];
+            m++;
+        }
+        src = dst;
+        n = m;
+    }
+    return n;
+}
+
+static int fill4(const int *pt, uint8_t fill, uint8_t edge, int *out)
+{
+    int n = clip(pt, 4, out);
+    if (n > 0) poly(out, n, fill, edge);
+    return n;
+}
+
+static unsigned bottom_hit(const int *p, int n)        /* 1dcb:8674: does it reach the car? */
+{
+    int l = 0, r = 0, any = 0;
+    for (int k = 0; k < n; k++)
+        if (p[2 * k + 1] == 0x65) {
+            if (p[2 * k] < 0x50) l++;
+            if (p[2 * k] > 0x13f) r++;
+            any = 1;
+        }
+    unsigned v = (l & 1) ? 0x20 : 0;
+    if (r & 1) v |= 0x40;
+    if (any && l == r) v = 0x60;
+    return v;
+}
+
+static int spans_bottom(int x0, const int *p, int n)   /* 1dcb:862a */
+{
+    int l = 0, r = 0;
+    for (int k = 0; k < n; k++)
+        if (p[2 * k + 1] == 0x65) {
+            if (p[2 * k] < x0) l = 1;
+            else if (x0 < p[2 * k]) r = 1;
+        }
+    return l & r;
+}
+
+/* ---- the Aqueduct's shapes: SR2_SHP kinds 23 (cloud), 24 (small cloud), 25 (bush, 9 sizes),
+ * each size in 7 versions turned -45..45 degrees (DS:7fbe), loaded by 2a21:7446. */
+typedef struct { int sizes, turns; ShapeSize v[10][7]; } AqShape;
+static AqShape aq_shapes[3];
+
+static void load_aq_shapes(size_t len)
+{
+    for (int k = 0; k < 3; k++) {
+        int kind = (int16_t)exe_ds_u16(0x81da) + k;
+        uint32_t off = exe_ds_u16((uint16_t)(0x80a2 + 8 * kind)) | (uint32_t)exe_ds_u16((uint16_t)(0x80a4 + 8 * kind)) << 16;
+        uint32_t size = exe_ds_u16((uint16_t)(0x80a6 + 8 * kind));
+        if (!size || off + size > len || size < 8) continue;
+        const uint8_t *b = shp_file + off;
+        int n = b[0] | b[1] << 8, turns = b[2] | b[3] << 8;
+        if (n < 1 || n > 10 || turns != 7 || 8u + 4u * (uint32_t)n + 16u * (uint32_t)(n * turns) > size) continue;
+        const uint8_t *rec = b + 8 + 4 * n;
+        const int8_t *data = (const int8_t *)(rec + 16 * n * turns), *end = (const int8_t *)(b + size);
+        AqShape *s = &aq_shapes[k];
+        for (int i = 0; i < n * turns; i++) {
+            ShapeSize *z = &s->v[i / turns][i % turns];
+            memcpy(z->layers, rec + 16 * i, 12);
+            z->spans = data;
+            for (int l = 0; l < 6 && z->layers[l][1]; l++) data += z->layers[l][1] * 3;
+            if (data > end) return;
+        }
+        s->sizes = n;
+        s->turns = turns;
+    }
+}
+
+static void aq_shape(int x, int y, int size, int k)    /* 1dcb:8288 */
+{
+    const AqShape *s = &aq_shapes[k];
+    if (size < 0 || size >= s->sizes) return;
+    if (g_aq.abs_bank < 0x37) {                        /* the version turned nearest the view */
+        const ShapeSize *z = &s->v[size][g_aq.variant];
+        int rx, ry;
+        rot(x, y, &rx, &ry);
+        const int8_t *p = z->spans;
+        for (int l = 0; l < 6 && z->layers[l][1]; l++) {
+            colour = z->layers[l][0];
+            for (int n = z->layers[l][1]; n; n--, p += 3) hline(rx + p[0], rx + p[0] + p[2], ry + p[1]);
+        }
+        return;
+    }
+    const ShapeSize *z = &s->v[size][3];                /* steeper: the upright one, turned span by span */
+    const int8_t *p = z->spans;
+    for (int l = 0; l < 6 && z->layers[l][1]; l++) {
+        colour = z->layers[l][0];
+        for (int n = z->layers[l][1]; n; n--, p += 3) {
+            int x0, y0, x1, y1;
+            rot(x + p[0], y + p[1], &x0, &y0);
+            rot(x + p[0] + p[2], y + p[1], &x1, &y1);
+            line(x0, y0, x1, y1);
+        }
+    }
+}
+
+/* ---- the sky (1dcb:8b16 -> 84c4): night, stars (0dcb:01da, DS:7f2e / 7f76) and clouds */
+
+static void stars(uint16_t tbl, int n, int dx, uint8_t c)
+{
+    const uint8_t *p = exe_ds(tbl, (size_t)n * 4);
+    if (!p) return;
+    for (int k = 0; k < n; k++) {
+        int x = (int16_t)(p[4 * k] | p[4 * k + 1] << 8) + dx, y = (int16_t)(p[4 * k + 2] | p[4 * k + 3] << 8);
+        if (g_aq.bank) rot(x, y, &x, &y);
+        if (x >= CLIP_X0 && x <= CLIP_X1 && y >= CLIP_Y0 && y <= CLIP_Y1) V->fb[y * SCREEN_W + x] = c;
+    }
+}
+
+static void aq_sky(const RoadView *rv)
+{
+    int bottom = g_aq.bank == 0 ? piv_y : CLIP_Y1;
+    colour = 1;
+    for (int y = CLIP_Y0; y <= bottom && y <= CLIP_Y1; y++) hline(CLIP_X0, CLIP_X1, y);
+    int s = (int16_t)(rv->heading * 2) % 0x140;        /* 96fa */
+    stars(0x7f2e, 0x12, s >> 1, 2);                    /* colours DS:ad48 / ad4a */
+    stars(0x7f76, 6, s >> 1, 4);
+    aq_shape(s + 0x5c, 0x20, 0, 0);
+    aq_shape(s + 0xd2, 0x2d, 0, 1);
+    aq_shape(s + 0xb4, 0x16, 0, 1);
+}
+
+/* ---- the painter (1dcb:905c), the view turned: [0] farthest .. [14] nearest */
+
+static int R_lx[15], R_ly[15], R_rx[15], R_ry[15], R_wlx[15], R_wly[15], R_wrx[15], R_wry[15];
+
+/* 1dcb:8ece: the patch on a wall (4 / 8 inset by a quarter, 0x100 / 0x200 the whole height). */
+static int wall_patch(int k, unsigned f, int *pt)
+{
+    const int *ax, *ay, *bx, *by;
+    if (f & 0x208) { ax = R_rx; ay = R_ry; bx = R_wrx; by = R_wry; }
+    else if (f & 0x104) { ax = R_lx; ay = R_ly; bx = R_wlx; by = R_wly; }
+    else return 0;
+    int q0 = (int16_t)(ax[k] - bx[k]) / 4, q1 = (int16_t)(ax[k + 1] - bx[k + 1]) / 4;
+    if (f & 0xc) {
+        pt[0] = ax[k] - q0;
+        pt[1] = y_at(ax[k], ay[k], bx[k], by[k], pt[0]);
+        pt[6] = ax[k + 1] - q1;
+        pt[7] = y_at(ax[k + 1], ay[k + 1], bx[k + 1], by[k + 1], pt[6]);
+    } else {
+        pt[0] = ax[k]; pt[1] = ay[k];
+        pt[6] = ax[k + 1]; pt[7] = ay[k + 1];
+    }
+    pt[2] = bx[k] + q0;
+    pt[3] = y_at(ax[k], ay[k], bx[k], by[k], pt[2]);
+    pt[4] = bx[k + 1] + q1;
+    pt[5] = y_at(ax[k + 1], ay[k + 1], bx[k + 1], by[k + 1], pt[4]);
+    return 1;
+}
+
+/* 1dcb:8b5c: a box from its far face (0..3: bottom left, bottom right, top left, top right) and
+ * near face (4..7); kind 1 (pillars) checks its foot against the car, kind 0 (blocks) its top. */
+static void box(int *p, int kind)
+{
+    for (int k = 0; k < 8; k++) rot(p[2 * k], p[2 * k + 1], &p[2 * k], &p[2 * k + 1]);
+#define X(i) p[2 * (i)]
+#define Y(i) p[2 * (i) + 1]
+#define EDGE(a, b) ((SDL_abs(X(a) - X(b)) < 3 || SDL_abs(Y(a) - Y(b)) < 3) ? 2 : 0)
+    int out[48], n;
+    if (X(0) < X(4)) { int q[8] = { X(0), Y(0), X(2), Y(2), X(6), Y(6), X(4), Y(4) }; fill4(q, 2, EDGE(0, 6), out); }
+    if (X(5) < X(1)) { int q[8] = { X(1), Y(1), X(3), Y(3), X(7), Y(7), X(5), Y(5) }; fill4(q, 2, EDGE(1, 7), out); }
+    if (Y(2) < Y(6)) {
+        int q[8] = { X(2), Y(2), X(3), Y(3), X(7), Y(7), X(6), Y(6) };
+        n = clip(q, 4, out);
+        if (n > 0) {
+            if (kind == 0) g_aq.hits |= bottom_hit(out, n);
+            poly(out, n, 5, EDGE(2, 7));
+        }
+    }
+    { int q[8] = { X(5), Y(5), X(4), Y(4), X(6), Y(6), X(7), Y(7) }; fill4(q, 2, EDGE(5, 6), out); }
+    if (kind == 1) {
+        int q[8] = { X(0), Y(0), X(1), Y(1), X(5), Y(5), X(4), Y(4) };
+        n = clip(q, 4, out);
+        if (n > 0) g_aq.hits |= bottom_hit(out, n);
+    }
+#undef X
+#undef Y
+#undef EDGE
+}
+
+static void aq_paint(const RoadView *rv)
+{
+    int seg = rv->seg, out[48];
+    int l42 = R_lx[0], l40 = R_ly[0], lb2 = R_rx[0], lba = R_ry[0];
+    int l3e = R_lx[14], l1e = R_ly[14], la0 = R_rx[14], la8 = R_ry[14];
+    int l46 = R_wlx[0], l44 = R_wly[0], l50 = R_wrx[0], l98 = R_wry[0];
+    int la = R_wlx[14], l10 = R_wly[14], l22 = R_wrx[14], l28 = R_wry[14];
+    if (g_aq.bank) {                                   /* reach past the screen's corners */
+        l3e = l3e * 4 - l42 * 3; l1e = l1e * 4 - l40 * 3;
+        la0 = la0 * 4 - lb2 * 3; la8 = la8 * 4 - lba * 3;
+        la = la * 4 - l46 * 3; l10 = l10 * 4 - l44 * 3;
+        l22 = l22 * 4 - l50 * 3; l28 = l28 * 4 - l98 * 3;
+    }
+    if (g_aq.bank == 0) {
+        colour = 5;                                    /* a0e6: the concrete */
+        for (int y = SDL_max(A_fy[14], CLIP_Y0); y <= CLIP_Y1; y++) hline(CLIP_X0, CLIP_X1, y);
+        int q[8] = { la, l10, l46, l44, l42, l40, 0, l40 };
+        fill4(q, 5, 5, out);
+        int r[8] = { l22, l28, l50, l98, lb2, lba, 0x13f, lba };
+        fill4(r, 5, 5, out);
+    } else {
+        int q[8] = { la, l10, l46, l44, l42, l40, l3e, l1e };
+        fill4(q, 5, 5, out);
+        int r[8] = { l22, l28, l50, l98, lb2, lba, la0, la8 };
+        fill4(r, 5, 5, out);
+        int f[8] = { l42, l40, lb2, lba, la0, la8, l3e, l1e };
+        fill4(f, 5, 5, out);
+    }
+    colour = 0;
+    line(l42, l40, l3e, l1e);                          /* the floor's edges */
+    line(lb2, lba, la0, la8);
+    colour = 15;
+    line(l46, l44, la, l10);                           /* the tops of the walls */
+    line(l50, l98, l22, l28);
+    int sfx, sfy, sgx, sgy, snx, sny, sox, soy;        /* the middle stripe: far left / right, near left / right */
+    rot(st_fl, st_fy, &sfx, &sfy);
+    rot(st_fr, st_fy, &sgx, &sgy);
+    rot(st_nl, st_ny, &snx, &sny);
+    rot(st_nr, st_ny, &sox, &soy);
+    for (int k = 0; k < 14; k++) {
+        unsigned f = T(seg + 14 - k);
+        if (f & 0x400) {                               /* the finish line */
+            int q[8] = { R_lx[k], R_ly[k], R_rx[k], R_ry[k], R_rx[k + 1], R_ry[k + 1], R_lx[k + 1], R_ly[k + 1] };
+            fill4(q, 15, 15, out);
+        }
+        if ((f & 1) && A_fy[14] < A_fy[14 - k]) {      /* a joint across the channel */
+            colour = 0;
+            line(R_lx[k], R_ly[k], R_rx[k], R_ry[k]);
+            line(R_lx[k], R_ly[k], R_wlx[k], R_wly[k]);
+            line(R_rx[k], R_ry[k], R_wrx[k], R_wry[k]);
+        }
+        int pt[8];
+        if (k > 1 && wall_patch(k, f, pt)) {
+            int n = clip(pt, 4, out);
+            if (n > 0) {
+                if (spans_bottom(0x5a, out, n)) g_aq.hits |= 1;
+                if (spans_bottom(0x13e, out, n)) g_aq.hits |= 4;
+                poly(out, n, 2, 0);
+            }
+        }
+        int j = 14 - k;
+        if ((f & 0x20) && k > 0) aq_shape(((A_xr[j] - A_xl[j]) >> 2) + A_xl[j], A_fy[j], j >> 1, 2);    /* 8482 */
+        if ((f & 0x40) && k > 0) aq_shape(A_xr[j] - ((A_xr[j] - A_xl[j]) >> 3), A_fy[j], j >> 1, 2);
+    }
+    int aa = -1, b4;
+    for (int k = 0; k < 14; k++) if (T(seg + 14 - k) & 2) { aa = k; break; }
+    for (b4 = aa + 1; b4 < 14 && (T(seg + 14 - b4) & 2); b4++) { }
+    if (b4 < 2) {
+        int q[8] = { sfx, sfy, snx, sny, sox, soy, sgx, sgy };
+        fill4(q, 2, 0, out);
+    } else {                                           /* the stripe stops at a crossing */
+        int x0, y0, x1, y1;
+        if (aa > 0) {
+            int y = A_fy[14 - aa];
+            rot(x_at(st_fl, st_fy, st_nl, st_ny, y), y, &x0, &y0);
+            rot(x_at(st_fr, st_fy, st_nr, st_ny, y), y, &x1, &y1);
+            int q[8] = { sfx, sfy, x0, y0, x1, y1, sgx, sgy };
+            fill4(q, 2, 0, out);
+        }
+        if (b4 < 13) {
+            int y = A_fy[14 - b4];
+            rot(x_at(st_fl, st_fy, st_nl, st_ny, y), y, &x0, &y0);
+            rot(x_at(st_fr, st_fy, st_nr, st_ny, y), y, &x1, &y1);
+            int q[8] = { x0, y0, snx, sny, sox, soy, x1, y1 };
+            fill4(q, 2, 0, out);
+        }
+    }
+    for (int j = 14; j > 0; j--) {                     /* blocks, pillars and the opponent */
+        unsigned f = T(seg + j);
+        if (f & 0x10) {
+            int a2 = (A_xc[j] - A_xl[j]) / 3 + A_xl[j], b0 = (A_xc[j] - A_xr[j]) / 3 + A_xr[j];
+            int a4 = A_fy[j], b8 = a4 + (A_ty[j] - a4) / 7;
+            int c6 = A_fy[j - 1], c = c6 - (c6 - A_ty[j - 1]) / 7;
+            int c4 = (A_xc[j - 1] - A_xl[j - 1]) / 3 + A_xl[j - 1], c0 = (A_xc[j - 1] - A_xr[j - 1]) / 3 + A_xr[j - 1];
+            int p[16] = { a2, a4, b0, a4, a2, b8, b0, b8, c4, c6, c0, c6, c4, c, c0, c };
+            box(p, 0);
+        }
+        if (f & 0x80) {
+            int v = (A_xr[j] - A_xl[j]) / 7, x1 = v + A_xl[j], x2 = x1 + (v >> 3);
+            int w = (A_xr[j - 1] - A_xl[j - 1]) / 7, x3 = w + A_xl[j - 1], x4 = x3 + (w >> 3);
+            int p[16] = { x1, A_fy[j], x2, A_fy[j], x1, A_ty[j], x2, A_ty[j],
+                          x3, A_fy[j - 1], x4, A_fy[j - 1], x3, A_ty[j - 1], x4, A_ty[j - 1] };
+            box(p, 1);
+            int r1 = A_xr[j] - v - (v >> 3), r3 = A_xr[j - 1] - w - (w >> 3);
+            int q[16] = { r1, A_fy[j], r1 + (v >> 3), A_fy[j], r1, A_ty[j], r1 + (v >> 3), A_ty[j],
+                          r3, A_fy[j - 1], r3 + (w >> 3), A_fy[j - 1], r3, A_ty[j - 1], r3 + (w >> 3), A_ty[j - 1] };
+            box(q, 1);
+        }
+        if (rv->opp_seg - seg == j && rv->draw_opponent) rv->draw_opponent();
+    }
+    if (rv->opp_seg == seg && rv->draw_opponent) rv->draw_opponent();
+}
+
+/* 11fc's Aqueduct branch for the windshield: 18ec, then a094 (the tilt, 9f08 / 9f9a, the turned
+ * view, 36f0 / 8b16 sky, 905c painter). The tilt moves the car (g_aq.slide / slow). */
+static void aq_draw(const RoadView *rv)
+{
+    AqView *q = &g_aq;
+    q->slide = q->slow = 0;
+    aq_project(rv);
+    piv_x = (A_xl[14] + A_xr[14]) >> 1;
+    piv_y = A_fy[14];
+    q->s_floor = q->floor; q->s_left = q->left; q->s_right = q->right; q->s_top = q->top;
+    q->floor = q->left = q->right = q->top = q->wall_l = q->wall_r = 0;
+    if (q->car_l > 0x5c8 && q->car_r < 0xcf8) q->bank = 0;
+    else if (q->car_l <= 0x5c8) aq_wall_left(rv);
+    else aq_wall_right(rv);
+    aq_stripe(rv);
+    aq_tilt();
+    sinv = road_aq_sin(q->bank);
+    cosv = road_aq_sin(q->bank + 0x5a);
+    for (int i = 0; i < 15; i++) {
+        rot(A_xl[i], A_fy[i], &R_lx[14 - i], &R_ly[14 - i]);
+        rot(A_xr[i], A_fy[i], &R_rx[14 - i], &R_ry[14 - i]);
+        rot(A_wl[i], A_ty[i], &R_wlx[14 - i], &R_wly[14 - i]);
+        rot(A_wr[i], A_ty[i], &R_wrx[14 - i], &R_wry[14 - i]);
+    }
+    aq_sky(rv);
+    aq_paint(rv);
+}
+
+int road_aq_ahead(const RoadView *rv, unsigned flags)
+{
+    AqView *q = &g_aq;
+    int c = (q->s_right + q->s_left + 0x12c0) >> 1, d = 0xc - (rv->sub >> 3);
+    int fy[2], xl[2], xr[2], xc[2], ty[2];
+    for (int i = 0; i < 2; i++, d += 8) {
+        fy[i] = aq_py(rv, d, q->s_floor + 2000);
+        xl[i] = aq_px(rv, d, q->s_left + 0x5c8);
+        xr[i] = aq_px(rv, d, q->s_right + 0xcf8);
+        xc[i] = aq_px(rv, d, q->s_right + c);
+        ty[i] = aq_py(rv, d, q->s_top + 0x67c);
+    }
+    int out[48], n;
+    unsigned hit = 0;
+    if (flags & 0x10) {
+        int y1 = (ty[1] - fy[1]) / 7 + fy[1], y0 = (ty[0] - fy[0]) / 7 + fy[0];
+        int p[8] = { (xc[1] - xl[1]) / 3 + xl[1], y1, (xc[1] - xr[1]) / 3 + xr[1], y1,
+                     (xc[0] - xl[0]) / 3 + xl[0], y0, (xc[0] - xr[0]) / 3 + xr[0], y0 };
+        if ((n = clip(p, 4, out)) > 0) hit = bottom_hit(out, n);
+    } else if (flags & 0x80) {
+        int v = (xr[1] - xl[1]) / 7, w = (xr[0] - xl[0]) / 7;
+        int p[8] = { v + xl[1], fy[1], v + xl[1] + (v >> 3), fy[1], w + xl[0] + (w >> 3), fy[0], w + xl[0], fy[0] };
+        if ((n = clip(p, 4, out)) > 0) hit = bottom_hit(out, n);
+        int r1 = xr[1] - v - (v >> 3), r0 = xr[0] - w - (w >> 3);
+        int q2[8] = { r1, fy[1], xr[1] - v, fy[1], xr[0] - w, fy[0], r0, fy[0] };
+        if ((n = clip(q2, 4, out)) > 0) hit |= bottom_hit(out, n);
+    }
+    return (int)hit;
 }

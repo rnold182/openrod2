@@ -1,4 +1,4 @@
-/* The street races: the drag race and Mulholland Drive (1001:be82 setup, 2a21:77f4 race screen,
+/* The street races: the drag race, Mulholland Drive and the Aqueduct (1001:be82 setup, 2a21:77f4 race screen,
  * 1001:8ef4 start, 1001:d908 per frame, the timer interrupt 0001:2620 for your engine, steering and
  * the roadside collisions (1dcb:148a), 1001:cb98 / d4cc / cf9a for the opponent, 1001:b584 result,
  * 1001:af0a the crash).
@@ -146,6 +146,12 @@ static int rear_hit, alongside;         /* 9a48, b8c0 */
 static int side_frames, bumped, in_bend;   /* 809c, 523e, 8014 */
 static int shoved;                      /* 809e: steps of braking after he shoves you */
 static int crash_speed, crash_ticks;    /* the crash screen (1001:af0a) */
+/* The Aqueduct. */
+static int aq_side;                     /* b8c8: over the top of the left (1) or right (-1) wall */
+static int aq_roll, aq_gap, aq_head0;   /* 1dcb:a1c0's frames of rolling over */
+static int aq_skip;                     /* 809a: 1001:cee0 looks ahead every other frame */
+static uint8_t aq_pix[SCREEN_W * (CLIP_LAST + 1)];   /* the view as the frame drew it */
+static int aq_have;
 
 void race_autodrive(int on) { autodrive = on; }
 
@@ -155,6 +161,7 @@ void race_autodrive(int on) { autodrive = on; }
 #define RES_TRANS   0x011
 #define RES_JUMPED  0x081
 #define RES_TIRES   0x009
+#define RES_CENTRE  0x101               /* over the middle at the start (1001:d908) */
 #define RES_CRASH   0x021               /* off the road or into something (a1bc |= 0x21) */
 #define RES_HIT_OPP 0x003               /* into the opponent's back */
 #define RACE_TIRE   0x008               /* a1bc |= 8: the tires gave out on the way */
@@ -174,8 +181,12 @@ static int seg_ok(int s) { return SDL_clamp(s, 0, ROAD_SEGS - 1); }
 static int F_(int s) { return s < 0 || s >= ROAD_SEGS ? 0 : g_road.flags[s]; }
 static int L_(int s) { return s < 0 || s >= ROAD_SEGS ? 0 : g_road.left[s]; }
 static int R_(int s) { return s < 0 || s >= ROAD_SEGS ? 0 : g_road.right[s]; }
-static int HD_(int s) { return g_road.heading[seg_ok(s)]; }
 static int mulholland(void) { return race == RACE_MULHOLLAND; }
+static int aqueduct(void) { return race == RACE_AQUEDUCT; }
+/* The road's heading; the Aqueduct runs straight (DS:9ad8 points at a 0 word, 1dcb:8840). */
+static int HD_(int s) { return aqueduct() ? 0 : g_road.heading[seg_ok(s)]; }
+/* The Aqueduct's table, running on into the next one as the original's does (road.c T()). */
+static unsigned AQ_(int s) { return s < 0 ? 0 : s < AQ_SEGS ? g_aqueduct[s] : (uint16_t)g_road.ground_l[seg_ok(s - AQ_SEGS)]; }
 
 static void engine_sound_restart(void);
 static void sfx_bump(void) { sound_sfx(SFX_BUMP); engine_sound_restart(); }   /* slot 16 (2c57:1246) */
@@ -204,6 +215,11 @@ static void steer_step(void)
  * Returns 1 when you hit something. */
 static int roadside_hit(void)
 {
+    if (aqueduct()) {                                                  /* 1dcb:1cd2 */
+        if (g_aq.car_l < 0x439) { aq_side = 1; return 1; }             /* over the top of a wall */
+        if (g_aq.car_r >= 0xded) { aq_side = -1; return 1; }
+        return g_aq.hits != 0;                                         /* into something (862a / 8674) */
+    }
     int mul = mulholland(), l = cam_x - 0x1e, r = cam_x + 0x46, k = mul ? 0x96 : 0x104;
     int f1 = F_(pos + 1), r1 = R_(pos + 1), gl = g_road.ground_l[seg_ok(pos)], gr = g_road.ground_r[seg_ok(pos)];
     if (gl > 0 && l < lane_l - (k >> 2)) return 1;                     /* the hillside */
@@ -350,7 +366,7 @@ static void opp_engine(void)
         fresh = 0;
     }
     for (int k = 0; k < fresh; k++) {
-        if (HD_(opp_pos + 1) != HD_(opp_pos)) {                        /* into a bend: ease off once */
+        if (!aqueduct() && HD_(opp_pos + 1) != HD_(opp_pos)) {         /* into a bend: ease off once */
             if (!in_bend) {
                 in_bend = 1;
                 int target = model_max_speed(&G->player, rival_model(&G->player, rival)) - (pos < opp_pos ? 0x1e : 3);
@@ -414,19 +430,28 @@ static void finish_line(void)            /* 1001:b1b2 */
 
 /* 1dcb:12ca: a new segment - the lanes here and four segments on, and past the line (or with the
  * autodrive cheat) the car is steered along the road. */
+static int aq_steer(int x, int delta, int seg, int other_x, int other_seg);
+/* DS:a7ac: the starter is still in the window (0dcb:a746 clears it once she's slid out). */
+static int starter_there(void) { return (starter_slide & ~3) * 2 <= 0x58; }
+
 static void new_segment(void)
 {
-    int narrow = F_(pos) & 0xe0, narrow4 = F_(pos + 4) & 0x80;
+    int narrow = F_(pos) & 0xe0, narrow4 = F_(pos + 4) & 0x80, aq = aqueduct();
     lane_l = narrow ? 2000 : 0x5dc;
     lane_r = narrow ? 0xaf0 : 0xce4;
     lane_l4 = narrow4 ? 2000 : 0x5dc;
     lane_r4 = narrow4 ? 0xaf0 : 0xce4;
-    if (autodrive == 1 || finish_seg < pos) {
-        int t = (0x5dc + 0xce4) >> 1;
-        if (!(F_(pos) & 0x80)) t = t < opp_x ? t - 0x140 : t + 0xa0;
-        if (SDL_abs(cam_x - t) < 0x65) cam_x = t;
+    if (aq) {                                                          /* the tops of the walls */
+        lane_l = lane_l4 = g_aq.wall_l + 0x438;
+        lane_r = lane_r4 = g_aq.wall_r + 0xe88;
+    }
+    if ((autodrive == 1 && !starter_there()) || finish_seg < pos) {
+        int t = ((aq ? 0x5c8 : 0x5dc) + (aq ? 0xcf8 : 0xce4)) >> 1;
+        if (aq || !(F_(pos) & 0x80)) t = t < opp_x ? t - 0x140 : t + 0xa0;
+        if (aq) cam_x += aq_steer(cam_x, t - cam_x, pos, opp_x, opp_pos);
+        else if (SDL_abs(cam_x - t) < 0x65) cam_x = t;
         else cam_x = t + (t < cam_x ? 100 : -100);
-        int hd = HD_(pos);
+        int hd = aq ? 0 : HD_(pos);                                    /* the channel runs straight (3722:0002) */
         if (hd != heading) wheel = SDL_clamp((heading - hd) * 2, -0x18, 0x18);
         heading = hd;
     }
@@ -531,8 +556,8 @@ static void opp_drive(void)
     int step = (opp_pos - pos == -1 && SDL_abs(opp_x - cam_x) < 0xb4) ? 0 : frame_distance(opp.speed);
     opp_sub += step;
     if (opp_sub > 0x3f && step > 0) { opp_pos += opp_sub >> 6; opp_sub &= 0x3f; }
-    int bridge = (F_(opp_pos + 4) & 0x80) || (F_(opp_pos) & 0x80);
-    int curve = HD_(pos + 4) - HD_(pos + 5), gap = opp_pos - pos, mid = (lane_r4 + lane_l4) >> 1;
+    int aq = aqueduct(), bridge = !aq && ((F_(opp_pos + 4) & 0x80) || (F_(opp_pos) & 0x80));
+    int curve = aq ? 0 : HD_(pos + 4) - HD_(pos + 5), gap = opp_pos - pos, mid = (lane_r4 + lane_l4) >> 1;
     if (gap > 0xc) {
         opp_aim = mid;
         if (curve) opp_flip = curve < 0;
@@ -572,8 +597,46 @@ static void opp_drive(void)
         } else if (bridge) opp_aim = mid;
         else opp_aim = opp_flip ? mid - 200 : mid + 300;
     }
-    opp_x += opp_dodge(opp_x, opp_aim - opp_x, opp_pos);
+    opp_x += aq ? aq_steer(opp_x, opp_aim - opp_x, opp_pos, cam_x, pos) : opp_dodge(opp_x, opp_aim - opp_x, opp_pos);
     cam_prev = cam_x;
+}
+
+/* 1001:d2a8: a car's sideways step in the Aqueduct towards x + delta, steering round the blocks
+ * and pillars in the next 8 segments by where the other car is (behind: 1, beside: 2 / 4, ahead: 8),
+ * the closer they are the sharper. */
+static int aq_steer(int x, int delta, int seg, int other_x, int other_seg)
+{
+    int target = delta + x, fl = g_aq.s_left + 0x5c8, fr = g_aq.s_right + 0xcf8, line[5];
+    if (autodrive != 1) {
+        int mid = (fl + fr) / 2;
+        line[0] = (fl - 0x438) / 3 + 0x438;
+        line[1] = (fr - fl) / 4 + fl;
+        line[2] = mid - 0x1e;
+        line[3] = (mid + fr) / 2;
+        line[4] = (0xe88 + fr) / 2;
+    } else {
+        static const int fixed[5] = { 0x514, 0x6a4, 0x884, 0xa3c, 0xbcc };
+        memcpy(line, fixed, sizeof line);
+    }
+    int c = (fl + fr) >> 1, other = other_x - c, me_ = x - c, gap = seg - other_seg;
+    int mode = gap >= 3 ? 1 : gap < 0 ? 8 : x < other_x ? 2 : 4, k, pick = -1;
+    for (k = 0; k < 8; k++) {
+        unsigned f = AQ_(seg + k);
+        if (!(f & 0x90)) continue;
+        if (mode == 2) pick = 0;
+        else if (mode == 4) pick = 4;
+        else if (mode == 1 && (f & 0x80) && !(f & 0x10)) pick = 2;
+        else pick = me_ < 0 ? 0 : 4;
+        break;
+    }
+    if (pick < 0) {
+        if (mode == 1) pick = other < 0 ? 1 : 3;
+        else if (mode == 8) pick = other < 0 ? 3 : 1;
+    }
+    if (pick >= 0) target = line[pick];
+    if (k > 0) k--;
+    if (k > 0) k--;
+    return (target - x) * 6 / (k + 1) / 6;
 }
 
 /* 0dcb:af98: which picture of the opponent shows, from how far ahead (1/64 segment) and which side:
@@ -655,12 +718,22 @@ static void contact(void)
     side_frames = 0;
 }
 
+static void aq_render(void);
+
+static RoadView view;
+static void aq_roll_step(void);
+
 static void race_frame(void)
 {
     /* 1dcb:1774: the heading follows the steering, and the car slides across the road by how far
      * the heading is off the road's - quicker the faster you go and the more the tires slip. */
     if (steer && me.speed && SDL_abs(heading - HD_(pos) - steer) < 200) heading -= (steer >> 1) + 1;
     opp_view();                                                        /* drawn by 11fc here */
+    if (aqueduct()) {                                                  /* its view moves the car */
+        aq_render();
+        cam_x += g_aq.slide;
+        me.speed -= g_aq.slow;
+    }
     int dist = frame_distance(me.speed);
     if (dist > 0) starter_slide += 4;
     if (autodrive != 1) {
@@ -674,9 +747,20 @@ static void race_frame(void)
     /* 1001:d908 */
     if (blowout_at && blowout_at < pos) tire_flat = 1;
     opp_engine();
+    if (aqueduct()) {                                                  /* 1001:cee0 */
+        unsigned f = AQ_(pos + 2);
+        if (!aq_skip) aq_skip = 1;
+        else if (sub + dist > 0x38 && (f & 0x90)) {                    /* don't jump past a block or a pillar */
+            RoadView v = { pos, 0x38, cam_x, CAM_H, heading, race, opp_pos, 0, NULL, me.speed, autodrive == 1 };
+            if (road_aq_ahead(&v, f)) { sub = 0x38; dist = 0; aq_skip = 0; }
+        }
+    }
     sub += dist;
     if (sub > 0x3f) { pos += sub >> 6; sub &= 0x3f; new_segment(); }
     opp_drive();
+    /* d908: while the starter is still there, keep to your side of the middle (DS:a7ac, b7b2). */
+    if (!result && starter_there() && cam_x < (((aqueduct() ? 0x5c8 : 0x5dc) + (aqueduct() ? 0xcf8 : 0xce4)) >> 1) + 0xa0)
+        result = RES_CENTRE;
     if (pos >= finish_seg || opp_pos >= finish_seg) finish_line();
     if (finished && me.speed < 1 && !result) result = you_first ? RES_WON : RES_LOST;
     contact();
@@ -808,7 +892,7 @@ static void crash_settle(void)
 static void settle(void)
 {
     Player *p = &G->player;
-    int burn = mulholland() ? 0xf : 5;                                 /* b584: DS:add6 1 / 0x10 */
+    int burn = mulholland() ? 0xf : aqueduct() ? 10 : 5;               /* b584: DS:add6 1 / 0x10 / 8 */
     if (you->fuel > burn) you->fuel -= burn; else you->fuel = 0;
     if (result == RES_CRASH || result == RES_HIT_OPP || (result & RACE_TIRE)) {
         p->money -= bet;
@@ -816,11 +900,13 @@ static void settle(void)
     } else if (result == RES_WON) {
         p->money += bet;
         if (stake == 5) win_pink_slip();
-        game_message(G, rival == KING ? 0x4f : (int16_t)exe_ds_u16((uint16_t)(0x512a + 2 * stake)));
+        game_message(G, rival == KING ? (aqueduct() ? 0x50 : 0x4f) : (int16_t)exe_ds_u16((uint16_t)(0x512a + 2 * stake)));
     } else if (result == RES_LOST) {
         p->money -= bet;
         if (stake == 5) lose_car();
-        game_message(G, rival == KING ? 0x55 : stake == 5 ? 0x53 : 0x54);
+        game_message(G, rival == KING ? (race == RACE_DRAG ? 0x55 : 0x56) : stake == 5 ? 0x53 : 0x54);
+    } else if (result == RES_CENTRE) {
+        game_message(G, 0x78);                                         /* b584 returns before the bets */
     } else if (result == RES_JUMPED) {
         game_message(G, 0x51);                                         /* "Ya jumped the light, speedy!" */
     } else if (result == RES_ENGINE || result == RES_TRANS) {
@@ -841,7 +927,8 @@ static void settle(void)
     /* Standings (tail of 1001:a626). */
     int won = result == RES_WON;
     if (result != RES_JUMPED) player_set_counter(p, 0, player_counter(p, 0) + 1);
-    if (won) player_set_counter(p, mulholland() ? 2 : 1, player_counter(p, mulholland() ? 2 : 1) + 1);
+    int kind = mulholland() ? 2 : aqueduct() ? 3 : 1;                  /* DS:479e / 47a0 / 47a2 */
+    if (won) player_set_counter(p, kind, player_counter(p, kind) + 1);
     int rep = player_rep(p, 0), rrep = rival_get(p, rival, 0xf);
     if (won) { if (rep < 8) rep++; if (rrep > 1) rrep--; }
     else { if (rep > 1) rep--; if (rrep < 8) rrep++; }
@@ -853,14 +940,25 @@ static void settle(void)
     else { if (rep2 > 1) rep2--; if (rrep2 < 8) rrep2++; }
     p->header_raw[0x29] = (uint8_t)rep2;
     rival_set(p, rival, 0x10, rrep2);
-    if (rival == KING && won) player_set_counter(p, 5, player_counter(p, 5) + 1);
+    if (rival == KING) {                                               /* 1001:a626 after b584 */
+        if (!won) {
+            player_set_counter(p, 5, 0);                               /* back to the start (DS:47a6, ad03) */
+            player_set_counter(p, 2, player_counter(p, 2) - 3);
+            player_set_counter(p, 3, player_counter(p, 3) - 2);
+        } else if (race == RACE_DRAG) player_set_counter(p, 5, 1);
+        else if (mulholland()) player_set_counter(p, 5, 2);
+        else {
+            player_set_counter(p, 5, 3);                               /* 1001:a51c, DS:1bc6 |= 2: not rebuilt yet */
+            SDL_Log("race: The King is beaten (1001:a51c not rebuilt yet)");
+        }
+    }
 }
 
 /* ------------------------------------------------------------------ scene */
 
 void race_start(Game *g, int r, int race_type, int stake_, int amount)
 {
-    race = race_type == RACE_MULHOLLAND ? RACE_MULHOLLAND : RACE_DRAG;
+    race = race_type == RACE_MULHOLLAND || race_type == RACE_AQUEDUCT ? race_type : RACE_DRAG;
     G = g;
     rival = r;
     stake = stake_;
@@ -880,8 +978,10 @@ static void enter(Game *g)
     skill = (int8_t)g->player.rivals[rival * 18];
     opp_limit = opp.automatic ? 0x14b4 : (skill - 10) * 200 + opp.shift_rpm;
     pick_band(&opp, 1);
-    start_seg = mulholland() ? 0x172 : 200;                            /* 1001:bc88 */
-    finish_seg = mulholland() ? 0x3c0 : 0x17c;
+    start_seg = mulholland() ? 0x172 : aqueduct() ? 8 : 200;           /* 1001:bc88 */
+    finish_seg = mulholland() ? 0x3c0 : aqueduct() ? 0x156 : 0x17c;
+    road_aq_reset();                                                   /* 1dcb:8840 / 1001:8d9e */
+    aq_side = aq_roll = aq_skip = aq_have = 0;
     pos = opp_pos = start_seg;
     sub = opp_sub = 0;
     cam_x = cam_prev = CAM_X;                                          /* 1dcb:0736 */
@@ -909,7 +1009,8 @@ static void enter(Game *g)
     frame_acc = engine_acc = 0;
     /* 1001:be82: tire wear for the run, and worn tires may give out (bc88). */
     if (you->tires.part >= 0) {
-        int base = g_parts[you->tires.part].grade == 0 ? (mulholland() ? 700 : 300) : (mulholland() ? 400 : 200);
+        int far = (race & 7) == 0;                                     /* Mulholland and the Aqueduct */
+        int base = g_parts[you->tires.part].grade == 0 ? (far ? 700 : 300) : (far ? 400 : 200);
         int w = you->tires.wear + (int)SDL_rand(300) + base;
         you->tires.wear = (int16_t)(w > 10000 ? 10000 : w);
     }
@@ -925,6 +1026,7 @@ static void enter(Game *g)
     starter_slide = flag_dropped = 0;
     game_message_clear(g);
     game_set_palette(g, PAL_INCAR);
+    if (aqueduct()) aq_render();
     sound_music_duck(opt_tune_music_duck);                              /* rebuild: hear the engine */
     engine_sound(1);
 }
@@ -933,7 +1035,7 @@ static void leave_race(void)
 {
     engine_sound(0);
     sound_music_duck(0);
-    G->player.time_actions += mulholland() ? 0x777 : 0x444;           /* 1001:9e3c */
+    G->player.time_actions += mulholland() ? 0x777 : aqueduct() ? 0x555 : 0x444;   /* 1001:9e3c */
     /* b584's answer: a pink-slip race or a broken car means home (towed, or on foot); otherwise
      * it's back to Burger's. */
     int home = go_home || !player_car(&G->player) || stake == 5 || result == RES_ENGINE || result == RES_TRANS ||
@@ -1007,6 +1109,7 @@ static void frame(void)
                 frame_no, state, pos, me.speed, me.rpm, me.gear, me.band, me.accel, cam_x, heading, HD_(pos), steer, opp_pos, opp.speed, opp.rpm, opp.gear, opp_limit, opp_x, opp_kind, result);
     read_controls();
     if (state == R_CRASH) {
+        if (aq_side && aq_roll < 9) { aq_roll_step(); return; }        /* rolling over the wall first */
         if (fell_steps && fell_steps < 9) {                            /* dropping off the cliff */
             cam_x += fall * 100;
             fell_steps++;
@@ -1040,6 +1143,7 @@ static void frame(void)
     default:
         break;
     }
+    if (aqueduct() && (state == R_STAGE || state == R_READY)) aq_render();   /* 8ef4 draws 11fc too */
     if (result && state < R_CRASH && SDL_getenv("SR2_DEBUG"))
         SDL_Log("race over: result %x at pos %d x %d speed %d (opp pos %d x %d kind %d)", result, pos, cam_x, me.speed, opp_pos, opp_x, opp_kind);
     if (fall && !fell_steps && result == RES_CRASH) fell_steps = 1;   /* 1dcb:7da2: over the edge */
@@ -1082,7 +1186,6 @@ static void result_screen(void)        /* 1001:b256: dialog 23 */
  * drawn here. You drive at 2560 (DS:a564) with your eyes at 1900 (a566), the opponent at 2200
  * (a9cc). The view is clipped to rows 18..101. */
 
-static RoadView view;
 static int road_seg(int s) { return SDL_clamp(s, 0, ROAD_SEGS - 1); }
 
 /* Copy part of a picture (colour 0 transparent for sprites), clipped to the view. */
@@ -1122,6 +1225,55 @@ static void blit_scaled(const Image *im, int dx, int dy, int w, int h)
     }
 }
 
+/* A picture scaled to w x h and turned by `angle` degrees round the middle of its bottom edge at
+ * (cx, by), the way 1dcb:0379 turns the view (the original keeps 7 turned copies, 2a21 a0ee). */
+static void blit_turned(const Image *im, int cx, int by, int w, int h, int angle)
+{
+    if (!im || w <= 0 || h <= 0) return;
+    int sn = road_aq_sin(angle), cs = road_aq_sin(angle + 0x5a), r = w + h;
+    Video *v = &G->video;
+    for (int ty = by - r; ty <= by + r; ty++) {
+        if (ty < CLIP_TOP || ty > CLIP_LAST) continue;
+        for (int tx = cx - r; tx <= cx + r; tx++) {
+            if (tx < 0 || tx >= SCREEN_W) continue;
+            int dx = tx - cx, dy = ty - by;
+            int u = ((dx * cs - dy * sn) >> 8) + w / 2, vv = ((dx * sn + dy * cs) >> 8) + h;
+            if (u < 0 || u >= w || vv < 0 || vv >= h) continue;
+            uint8_t c = im->pixels[(vv * im->h / h) * im->w + u * im->w / w];
+            if ((im->flags & IMAGE_SPRITE) && !c) continue;
+            v->fb[ty * SCREEN_W + tx] = c;
+        }
+    }
+}
+
+/* af98's Aqueduct part: the opponent up a wall is lifted and tilted (1dcb:ae9c picks one of the 7
+ * turned pictures, -1 for steeper); the side and big rear views only show upright. */
+static void aq_opponent(int d, int *kind, int *x, int *y, int *turn, int *tilt)
+{
+    const AqView *q = &g_aq;
+    int over = opp_x < q->s_left + 0x5fa ? q->s_left - opp_x + 0x5fa : q->s_right + 0xcc6 < opp_x ? opp_x - q->s_right - 0xcc6 : 0;
+    int t = over >= 100 ? 0x2d : over < 1 ? 0 : over * 0x2d / 100;
+    if (opp_x - ((q->s_right + q->s_left + 0x12c0) >> 1) < 0) t = -t;
+    t += q->bank;
+    if (q->bank < 0 && q->bank > -0x5a) t += q->bank >> 2;
+    if (t > 0x167) t -= 0x168;
+    if (t < -0x167) t += 0x168;
+    int a = SDL_abs(t), k = a < 0xd ? 3 : a < 0x17 ? 2 : a < 0x25 ? 1 : a < 0x38 ? 0 : -1;
+    if (t > 0 && k != -1) k = 6 - k;
+    *turn = k;
+    *tilt = t;
+    if (*kind == 0 && k != 3) { *kind = -1; return; }
+    if (*kind == 1 && k != 3) *kind = 2;
+    int h = q->s_floor + 2000;                                         /* up a wall: lifted (1dcb:afd0) */
+    if (opp_x < q->s_left + 0x5c8)
+        h -= (int)((long)(q->s_left - opp_x + 0x5a0) * (q->s_top - q->s_floor + 0x154) / (400 + q->s_left));
+    else if (opp_x > q->s_right + 0xcf8)
+        h -= (int)((long)(q->s_top - q->s_floor + 0x154) * (opp_x - q->s_right - 0xcf8) / (400 - q->s_right));
+    int px = road_proj_x(&view, d, opp_x, view.heading), py = road_proj_y(&view, d, h, -q->pitch);
+    if (rear_hit || result == RES_HIT_OPP) py = 0x68;
+    road_aq_rotate(px, py, x, y);
+}
+
 static void draw_opponent(void)
 {
     Player *p = &G->player;
@@ -1134,8 +1286,14 @@ static void draw_opponent(void)
     if (kind == 0) d += 0x10;
     if (d < -2 && kind == 2) d += 8;
     d = SDL_abs(d) + 4;
-    int x = road_proj_x(&view, d, opp_x, view.heading - g_road.heading[road_seg(opp_pos)]);
-    int y = road_proj_y(&view, d, GROUND, g_road.height[road_seg(pos)] - g_road.height[road_seg(opp_pos)]);
+    int x, y, turn = 3, tilt = 0;
+    if (aqueduct()) {
+        aq_opponent(d, &kind, &x, &y, &turn, &tilt);
+        if (kind < 0) return;
+    } else {
+        x = road_proj_x(&view, d, opp_x, view.heading - g_road.heading[road_seg(opp_pos)]);
+        y = road_proj_y(&view, d, GROUND, g_road.height[road_seg(pos)] - g_road.height[road_seg(opp_pos)]);
+    }
     game_set_paint(G, rival == KING ? g_models[rival_model(p, rival)].colour : rival_get(p, rival, 0xa));
     if (kind == 0) {                                                   /* the car beside you, cut by the pillar */
         const Image *im = game_picture(G, side_pic);
@@ -1153,8 +1311,51 @@ static void draw_opponent(void)
         if (scale > 1.0) scale = 1.0;
         int w = (int)(im->w * scale), h = (int)(im->h * scale);
         if (y > 0x65) y = 0x65;
-        blit_scaled(im, x - w / 2, y - h, w, h);
+        if (turn != 3) blit_turned(im, x, y, w, h, turn < 0 ? tilt : (int16_t)exe_ds_u16((uint16_t)(0x7fbe + 2 * turn)));
+        else blit_scaled(im, x - w / 2, y - h, w, h);
     }
+}
+
+/* 1dcb:a1c0: over the top of a wall the car rolls over, eight frames (slowly: it only tips). */
+static void aq_roll_step(void)
+{
+    if (aq_roll == 0) {
+        int a = (opp_pos - pos) * 8 + (opp_sub - sub < 0 ? -((sub - opp_sub) >> 3) : (opp_sub - sub) >> 3);
+        aq_gap = a < 0x10 ? -1 : ((a + 8) >> 4) + 2;
+        aq_head0 = heading;
+    }
+    sub += frame_distance(crash_speed);                                /* d908 goes on moving you */
+    pos += sub >> 6;
+    sub &= 0x3f;
+    if (crash_speed < 0x1f) {
+        g_aq.roll = aq_side < 1 ? 6 : -6;
+        g_aq.lift = 10;
+        aq_render();
+        g_aq.roll = 0;
+        aq_roll = 9;
+        return;
+    }
+    if (aq_roll < 8) {
+        if (aq_gap > 1) opp_pos += 2;
+        g_aq.roll += aq_side < 1 ? -0x22 : 0x20;
+        heading -= aq_head0 / 6;
+        cam_x += aq_side < 1 ? -0x28 : 0x28;
+        g_aq.lift = (aq_roll > 3 ? 8 - aq_roll : aq_roll) * (crash_speed / 6);
+        aq_render();
+        aq_roll++;
+        return;
+    }
+    aq_render();
+    g_aq.roll = 0;
+    aq_roll = 9;
+}
+
+static void aq_render(void)
+{
+    view = (RoadView){ pos, sub, cam_x, CAM_H, heading, race, opp_pos, 0, draw_opponent, me.speed, autodrive == 1 };
+    road_draw(G, &view);
+    memcpy(aq_pix, G->video.fb, sizeof aq_pix);
+    aq_have = 1;
 }
 
 /* 0dcb:a746: the starter stands close by on the left (torso 0x816, arm frames 0x817); his arm
@@ -1163,7 +1364,7 @@ static void draw_starter(void)
 {
     int shift = (starter_slide & ~3) * 2;
     if (shift > 0x58) return;
-    const Image *torso = game_picture(G, 0x816), *arm = game_picture(G, 0x817);
+    const Image *torso = game_picture(G, aqueduct() ? 0x813 : 0x816), *arm = game_picture(G, aqueduct() ? 0x814 : 0x817);   /* DS:b7b2 (1001:8d9e) */
     int x = 8 - shift, frame_x = flag_dropped ? 0x30 : 0;
     for (int part = 0; part < 2; part++) {                             /* clipped at x = 8 like the original */
         const Image *im = part ? arm : torso;
@@ -1259,16 +1460,22 @@ static void update(Game *g)
     if (t > 2) t = 0;
     int eye = CAM_H, x = cam_x;
     if (fell_steps) eye -= fell_steps * (fell_steps + 1) / 2;          /* 7da2: the view drops away */
-    view = (RoadView){ pos, sub, x, eye, heading, race, opp_pos, fall, draw_opponent };
-    road_draw(g, &view);
+    if (aqueduct()) {                                                  /* drawn by the frame: it moves the car */
+        if (aq_have) memcpy(v->fb, aq_pix, sizeof aq_pix);
+    } else {
+        view = (RoadView){ pos, sub, x, eye, heading, race, opp_pos, fall, draw_opponent, me.speed, autodrive == 1 };
+        road_draw(g, &view);
+    }
     if (you) game_set_paint(g, you->colour);
     /* 1dcb:573e: the top of the steering wheel shows above the dashboard (DS:78e0). */
     game_draw_picture(g, ds16((uint16_t)(0x78e0 + 6 * t)), ds16((uint16_t)(0x78e2 + 6 * t)), ds16((uint16_t)(0x78e4 + 6 * t)));
     draw_starter();
+    game_draw_picture(g, 0x7d3, 0, 0x12);                             /* 1dcb:56e8: the window's left pillar (DS:9a52) */
     if (you) game_set_paint(g, you->colour);
     game_draw_picture(g, 0x7dd, 0, 0);                                 /* roof and mirror */
     draw_dash();
-    if (state == R_CRASH || (state == R_DONE && (result == RES_CRASH || result == RES_HIT_OPP || (result & RACE_TIRE)))) {
+    if (aq_side && aq_roll < 9) { }                                    /* still rolling */
+    else if (state == R_CRASH || (state == R_DONE && (result == RES_CRASH || result == RES_HIT_OPP || (result & RACE_TIRE)))) {
         /* 1001:af0a: the windshield caves in (2064 in two parts round the roof line), the dash
          * edge (DS:78e0's 2048 / 2065) and the corner piece 2066; past 90 mph more comes apart. */
         const Image *glass = game_picture(g, 0x810);

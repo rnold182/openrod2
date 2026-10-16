@@ -225,8 +225,8 @@
   (colour 5, posts every other segment from DS:96f4); side flag 0x10 rock piles (51e0, kinds 7/8,
   tables 7ed0/7e9a/7ece); road flags 4 / 0x1000 put kind 7 / 0x14 on the road at 665a * width / 16,
   and in the nearest segment 69d4 checks them against the car's corners (DS:bb88 / add4).
-- Not ported yet: the mirror (0ce4/379e), the town view (bit 0 roads, 52e2 picture objects), Aqueduct
-  (18ec/a094).
+- Not ported yet: the mirror (0ce4/379e and the Aqueduct's 1b02/9ce8/57a6/a92a), the town view (bit 0
+  roads, 52e2 picture objects).
 
 ## Steering, collisions and Mulholland Drive (rebuild race.c)
 - Setup 1001:bc88: drag 200..0x17c, Mulholland 0x172..0x3c0 (Aqueduct 8..0x156); tire wear 300/200
@@ -262,6 +262,63 @@
   0x5b, 0x5c with tires); 91+ mph or fallen: totaled, scrap body value / 10 + 19 (msg 0x5d); below 31:
   msg 0x5e (0x5f + new tires); else dialog 24 (61..90: rand(40) + 100) or 25 (31..60: rand(20) + 100)
   Fix it (pay) / Junk it (40% of the price). Bets are lost. ac68: tires from the spares, else $50.
+
+## The Aqueduct (add6 8; rebuild road.c aq_* / race.c)
+- Setup: segments 8..0x156 (bc88), tire wear 700/400 like Mulholland ((add6 & 7) == 0), fuel > 11,
+  burns 10 (b584), time 0x555 (9e3c); race screen 1dcb:8840 instead of 37ce. The road heading
+  (DS:9ad8) and height (9dc8) point at constant 0 words (3722:0002 / 0000): the channel is straight.
+  Starter 0x813 + arm 0x814 (2067/2068, a5aa); every race draws 2003 at (0, 0x12), the window's left
+  pillar (56e8, after the starter).
+- Table 1dcb:33ac in the far segment at 4e62 (one word per segment, 0x172 of them; a copy reversed at
+  628e for the mirror): 2 at 3..6 of every 0x18 (crossings: the middle stripe stops, no bumping),
+  1 every 6 (joints: black lines across the floor and up the walls), 4 / 8 at 0x11 / 0x10 of every
+  0x18 (dark patches on the left / right wall inset a quarter; 0x89 / 0x88 and 0x119 / 0x118 are
+  0x100 / 0x200, the whole height), 0x10 blocks at 4, 0x4c, 0xdc, 0x13c, 0x16c, 0x80 pillar pairs at
+  0x7c, 0x10c, 0x20 / 0x40 bushes (left a quarter in / right an eighth in), 0x400 finish at 0x155.
+  Past the end it reads the next table (5146, terrain left).
+- 11fc: 18ec projects 15 slices (d as 07e4) of floor y (h 2000 + 985e), floor edges 0x5c8 / 0xcf8
+  (+ a2b8 / a7a6), middle, wall top y (0x67c + a5fa) and wall tops 0x438 / 0xe88 (+ 9a5a / 9b14),
+  the middle stripe 0x960 +- 0x28 near and far, and the car's sides a564 - 0x6e / + 0x208 (9ac8 /
+  9a58) at d 4; 062c clamps the camera to 0x564..0xd5c; 0684 adds 9a56. a094 saves those offsets
+  (aa9c / b8be / bb8a / b8e6; ad6a / b166 stay 0), clears them and works out the tilt 9e70: a car
+  side past a floor edge puts you on a wall (9d9c left: tilt v*0x6c/400, 9e4e right: v*-0x5a/400,
+  the offsets lift the view, you slide back down 15 per frame (+25 near the top) unless in demo /
+  autodrive); 9f08 (not on a crossing): a car side on the stripe or across it since last frame bumps
+  the view +-4 and costs 2 mph above 10; 9f9a adds b8bc (rolling), keeps b190 = |tilt|, ad68 = which
+  of 7 turned shapes (-45..45, DS:7fbe), and a pitch b7b0 from the tilt's change (into 986a). All
+  points then turn round the far middle (0379, sin table 02b4 at DS:1504, 255 = 1).
+- Sky 8b16: rows 0x12..far floor (or all when tilted) colour 1, stars (0dcb:01da driver entry 19:
+  18 points DS:7f2e colour 2, 6 points 7f76 colour 4, x + heading), clouds = SR2_SHP kinds 23 / 24
+  (81da = 23, 81dc = 3 kinds; this format holds 7 turned versions per size: count, 7, 4-byte
+  pointers, 16-byte size records, spans; 2a21:7446) drawn by 8288 (b190 >= 0x37: the upright one
+  turned span by span as lines).
+- Painter 905c: concrete colour 5 (walls / floor polygons), floor edges black, wall tops colour 15,
+  stripe colour 2 edged black; per slice far to near the finish (white), joints, wall patches (8ece;
+  862a: covering the bottom row across x 0x5a / 0x13e sets a7d2 1 / 4), bushes (kind 25, size
+  slice / 2); then near to far 8b5c boxes (sides / front colour 2, top 5, black edges unless < 3 px):
+  0x10 a block across the middle third, 1/7 of the wall high (its top touching the bottom row:
+  8674 -> a7d2 0x20 / 0x60), 0x80 two thin pillars full height (their feet); the opponent (af98).
+  Polygons are clipped by 7f30 (Sutherland-Hodgman, 0350 / 0327 for the cuts) and filled by a0f6.
+- 1dcb:1cd2 (148a for the Aqueduct): car side < 0x439 or > 0xdec = over the top of a wall (b8c8 1 /
+  -1), or a7d2 set: crash (a1bc |= 0x21). a1c0 then rolls the car: 8 frames of b8bc += 0x20 (or
+  -0x22), a564 += +-0x28, heading - first / 6, the view dropping 9a56 = k * speed / 6; below 31 mph
+  one frame tipped 6 and dropped 10. cee0: every other frame, if this step would pass sub 0x38 with
+  a block or pillar two segments on (0x90), a2d8 checks their feet at d 5 / 13 (8674) and stops you
+  at 0x38 so the next picture catches the hit.
+- Opponent: d4cc without bends or bridges, sideways by 1001:d2a8 (also you on autodrive / past the
+  line in 12ca, target the middle -0x140 / +0xa0, lanes 985c / a558 = the wall tops): five lines
+  across the channel (a third up the left wall .. halfway up the right; fixed 0x514.. in demo); a
+  block or pillar in the next 8 segments picks one by where the other car is, else pass him; step =
+  (target - x) * 6 / (segments to it, less 2, + 1) / 6. cb98 skips the bends ((add6 & 0xe) == 0).
+  af98: up a wall he is lifted (b8be - x + 0x5a0) * (b8e6 - aa9c + 0x154) / (400 + b8be) and tilted
+  (ae9c: up to 0x2d by how far up, + the view's tilt); 7 turned copies made by a0ee (0dcb:c342) at
+  setup, the side and big rear views only upright. The rebuild turns the picture itself (approx.).
+- d908 for drag, Mulholland and Aqueduct: while the starter is in the window (a7ac), a564 left of the
+  middle + 0xa0 = a1bc 0x101, b584: message 0x78 "You just bumped the starter...", bets untouched.
+  12ca's autopilot steering also waits for her to go.
+- Results: The King: win 0x50 (Aqueduct) / 0x4f, loss 0x55 (drag) / 0x56; a626 then: lost to him ->
+  47a6 = 0, ad03 = 0, 47a0 -= 3, 47a2 -= 2; beat him -> 47a6 = 1 (drag) / 2 (Mulholland), Aqueduct ->
+  a51c and 1bc6 |= 2 (not rebuilt yet). Aqueduct wins count in 47a2.
 
 ## Rebuild deviations / modern options (planned options menu)
 - Newspaper paging: next page starts at the first ad not fully shown (original repeated one entry).

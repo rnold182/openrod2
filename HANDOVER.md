@@ -3,7 +3,7 @@
 ## What this is
 OpenRod 2 is a from-scratch rebuild of **Street Rod 2** (1990, DOS) in plain C + SDL3. It reads the original game files at runtime and is a faithful port of SR.EXE, reverse-engineered function by function.
 - Repo: `C:\Users\inact\SR2`, public at github.com/rnold182/openrod2, branch `main`.
-- Last commit: `29d60dc`. Everything is pushed.
+- Last commit: see `git log`. Everything is pushed.
 - Releases: v0.1 and v0.2 ("Mulholland Drive"), both pre-alpha. The zips are in `dist\`, which is gitignored.
 
 ## Rules the user set (keep them)
@@ -65,28 +65,29 @@ OpenRod 2 is a from-scratch rebuild of **Street Rod 2** (1990, DOS) in plain C +
   - The engine steps on its own 6.07 Hz clock (every 12th tick).
   - Race times count those steps.
 
+- **The Aqueduct** (add6 8): its own renderer in `road.c` (`aq_*`: 33ac table, 18ec/a094 projection
+  and tilt, 8b16 sky, 905c painter, 8b5c boxes, 8288 turned shapes, 7f30 clipping), collisions
+  (1cd2, a2d8), rolling over (a1c0), opponent steering d2a8 and his lifted / turned picture.
+  The race view is drawn once per game frame there (it moves the car) and kept for the display.
+
 **Recent fixes:**
 - At Burger's, the parked car's bottom 8 rows are left undrawn (DS:1bde[2]), as in the original.
 - The cursor shows over the crash dialog.
+- Every race now draws the window's left pillar (2003, 1dcb:56e8), and steering across the middle while
+  the starter is still there disqualifies you (msg 0x78), as in the original.
 
 ## Next steps (in this order)
-1. **Aqueduct race.**
-   - It's add6 = 8, segments 8..0x156, and it is currently blocked in `street.c race_agreed()`.
-   - It has its own renderer: 1dcb:18ec / a094 / 1b02 / 9ce8, with table 4e62 built by 1dcb:33ac (not ported yet; road.c has no Aqueduct table).
-   - Opponent AI 1001:d2a8; projection clamps in 062c for add6 == 8.
-   - Crossing the centre line sets a1bc = 0x101 (messages 0x78 / 0x6d / 0x6c).
-   - It's The King's pink-slip race.
-2. **Police on Mulholland.**
+1. **Police on Mulholland.**
    - DS:ab2c: a 1 in 4 chance; the police wait at segment 9aca.
    - The d908 state machine, d85c, the siren (bbb8, sound slot 11).
    - b584's a1bc & 0x40 path: a speeding fine "You have been fined $%2d" (DS:51e7), the 2009 ticket picture, message 0x52.
-3. **The rear-view mirror.** Projection 1dcb:0ce4 (06ba/070e), draw 379e, opponent kinds 9+, clip x 0xf0..0x13f, rows 0x16..0x2a.
-4. **Race aftermath.** The King losing (1001:a51c), and the opponent's small rear views: the original uses pre-scaled copies (scale bytes from SR2_DATA via 37ce's a0ea calls, DS:aaa4 records), the rebuild still scales them by 12/d.
-5. **The gas station.** Garage "Wanna tank?" hotspot id 15, mode 3, 3925:2104, dialog 22.
-6. **Grudge Night.** Id 17, Wednesdays only (63e0() % 7 == 2), $30, fuel > 23, mode 4, 3925:1970 (race types 2/4 use tables 60be/61a6/6572).
-7. **Street details.** Cars driving in and out with their motor sound (2a21:89fa, 1001:20a0/2176), the carhop (2a21:945a, picture 0x458), rival taunts (1001:9432).
-8. **End of summer.** Day > 90 → DS:1bc6, 1001:36ac / 348a.
-9. **Options menu** for every `opt_*` setting.
+2. **The rear-view mirror.** Projection 1dcb:0ce4 (06ba/070e), draw 379e, opponent kinds 9+, clip x 0xf0..0x13f, rows 0x16..0x2a. In the Aqueduct: 1b02 / 9ce8 / 57a6 / a92a and the reversed table 628e.
+3. **Race aftermath.** The King losing (1001:a51c), and the opponent's small rear views: the original uses pre-scaled copies (scale bytes from SR2_DATA via 37ce's a0ea calls, DS:aaa4 records), the rebuild still scales them by 12/d.
+4. **The gas station.** Garage "Wanna tank?" hotspot id 15, mode 3, 3925:2104, dialog 22.
+5. **Grudge Night.** Id 17, Wednesdays only (63e0() % 7 == 2), $30, fuel > 23, mode 4, 3925:1970 (race types 2/4 use tables 60be/61a6/6572).
+6. **Street details.** Cars driving in and out with their motor sound (2a21:89fa, 1001:20a0/2176), the carhop (2a21:945a, picture 0x458), rival taunts (1001:9432).
+7. **End of summer.** Day > 90 → DS:1bc6, 1001:36ac / 348a.
+8. **Options menu** for every `opt_*` setting.
 
 ## Starter prompt for the new session
-> We're continuing OpenRod 2, my C/SDL3 rebuild of Street Rod 2 in C:\Users\inact\SR2. Read HANDOVER.md in the repo first (rules, build/test commands, where we are, next steps), then NOTES.md's race sections ("The drag race", "The roads", "Steering, collisions and Mulholland Drive") and engine/src/scenes/race.c + engine/src/road.c. Keep exactly the same approach: faithful ports from out/sr_decompiled.c and the disassembler, original addresses in comments, findings into NOTES.md, modern touches only as opt_* options, commit + push after each step, build both build_dev and build (check openrod2.exe isn't running), test with scripted runs and screenshots. Next task: the Aqueduct race (step 1 in HANDOVER.md).
+> We're continuing OpenRod 2, my C/SDL3 rebuild of Street Rod 2 in C:\Users\inact\SR2. Read HANDOVER.md in the repo first (rules, build/test commands, where we are, next steps), then NOTES.md's race sections ("The drag race", "The roads", "Steering, collisions and Mulholland Drive") and engine/src/scenes/race.c + engine/src/road.c. Keep exactly the same approach: faithful ports from out/sr_decompiled.c and the disassembler, original addresses in comments, findings into NOTES.md, modern touches only as opt_* options, commit + push after each step, build both build_dev and build (check openrod2.exe isn't running), test with scripted runs and screenshots. Next task: step 1 in HANDOVER.md.
