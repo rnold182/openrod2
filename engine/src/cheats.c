@@ -7,6 +7,7 @@
 #include "data.h"
 #include "options.h"
 #include "rivals.h"
+#include "save.h"
 #include "scenes/race.h"
 #include "ui/font.h"
 
@@ -109,12 +110,17 @@ void cheats_run(Game *g, const char *line)
             opt_animations = !strcmp(arg, "on") ? 1 : !strcmp(arg, "off") ? 0 : !opt_animations;
         }
         say("Animations %s, speed %d%%", opt_animations ? "on" : "off", opt_anim_speed);
+    } else if (!strcmp(cmd, "save")) {               /* testing: a game for the original to load */
+        int slot = atoi(arg);
+        if (slot < 0 || slot >= SAVE_SLOTS) { say("save 0..%d", SAVE_SLOTS - 1); return; }
+        say(save_write(g->data_dir, slot, &g->player, g->player.name) ? "Save failed" : "Saved to HOTROD%d.SAV", slot);
     } else if (!strcmp(cmd, "help")) {
         say("money N (add) / money =N (set)");
         say("car N / car list    part N / part list");
         say("day N (0 = June 16 .. 91)");
         say("anim [on|off|speed 25..400]   rival N (at Burger's)");
         say("agree (rivals take any bet)   autodrive [pedals|off]");
+        say("save N (to HOTRODN.SAV)");
     } else if (cmd[0]) {
         say("Unknown: %s (try help)", cmd);
     }
