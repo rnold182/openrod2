@@ -610,6 +610,8 @@ static void wrap(int heading, int mul, int *left, int *right)
 }
 
 static int horizon_slice;                              /* DS:9856 */
+static int road_top;                                   /* DS:975e */
+int road_ground_row(int i) { return i >= 0 && i < 15 ? gy[i] : road_top; }
 
 static void backdrop(const RoadView *rv)
 {
@@ -631,6 +633,7 @@ static void backdrop(const RoadView *rv)
     int top = hz + 8;
     for (int k = 14; k > 0; k--)
         if (gy[k] < top) { top = gy[k]; horizon_slice = k; }
+    road_top = top;
     if (top < 0x12) top = 0x12;
     colour = 9;                                        /* a0e6: the fields */
     for (int y = top; y <= CLIP_Y1; y++) hline(CLIP_X0, CLIP_X1, y);
@@ -655,6 +658,7 @@ static void backdrop_mulholland(const RoadView *rv)
     horizon_slice = 14;
     for (int k = 14; k > 0; k--)
         if (gy[k] < top) { top = gy[k]; horizon_slice = k; }
+    road_top = top;
     if (rv->fall && h + 0x12 < 0x65) {
         colour = 0xe;
         for (int y = h + 0x12; y <= CLIP_Y1; y++) hline(CLIP_X0, CLIP_X1, y);

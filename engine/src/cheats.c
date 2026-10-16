@@ -110,6 +110,8 @@ void cheats_run(Game *g, const char *line)
             opt_animations = !strcmp(arg, "on") ? 1 : !strcmp(arg, "off") ? 0 : !opt_animations;
         }
         say("Animations %s, speed %d%%", opt_animations ? "on" : "off", opt_anim_speed);
+    } else if (!strcmp(cmd, "kingend")) {            /* testing: The King's farewell (1001:a51c) */
+        game_set_scene(g, &scene_king);
     } else if (!strcmp(cmd, "police")) {             /* testing: the police on the next Mulholland race */
         race_force_police();
         say("The police wait on the next Mulholland run");
@@ -124,6 +126,7 @@ void cheats_run(Game *g, const char *line)
         say("anim [on|off|speed 25..400]   rival N (at Burger's)");
         say("agree (rivals take any bet)   autodrive [pedals|off]");
         say("save N (to HOTRODN.SAV)   police (next Mulholland)");
+        say("kingend (The King's farewell)");
     } else if (cmd[0]) {
         say("Unknown: %s (try help)", cmd);
     }

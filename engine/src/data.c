@@ -16,11 +16,12 @@ static uint8_t *sr2_data;   /* kept alive: ad texts and names point into it */
 /* SR2_DATA is read as fixed-size blocks straight into SR.EXE's data segment (2a21:6e6a). */
 enum {
     B_RIVALS = 0, B_MODELS = 396, B_PATCHES = 836, B_GEOMETRY = 1056, B_9872 = 1320,
-    B_A542 = 1760, B_NAMES = 1762, B_UNUSED = 1850, B_AA9E = 2246, B_TEXT = 2330,
+    B_A542 = 1760, B_NAMES = 1762, B_8E3C = 1850, B_AA9E = 2246, B_TEXT = 2330,
 };
 
 const uint8_t *data_rivals_initial(void) { return sr2_data + B_RIVALS; }
 const uint8_t *data_race_sprites(void) { return sr2_data + B_AA9E; }
+const uint8_t *data_shrink_masks(void) { return sr2_data + B_8E3C; }
 
 static uint16_t rd16(const uint8_t *p) { return (uint16_t)(p[0] | p[1] << 8); }
 

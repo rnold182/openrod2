@@ -898,7 +898,7 @@ static void new_tires(void)
 }
 
 static Dialog repair;                    /* dialogs 24/25 after a crash */
-static int repair_open, repair_cost, go_home;
+static int repair_open, repair_cost, go_home, king_beaten;
 
 /* The crash part of 1001:b584: what's left of the car depends on how fast you were going. */
 static void crash_settle(void)
@@ -1016,8 +1016,8 @@ standings:
         } else if (race == RACE_DRAG) player_set_counter(p, 5, 1);
         else if (mulholland()) player_set_counter(p, 5, 2);
         else {
-            player_set_counter(p, 5, 3);                               /* 1001:a51c, DS:1bc6 |= 2: not rebuilt yet */
-            SDL_Log("race: The King is beaten (1001:a51c not rebuilt yet)");
+            player_set_counter(p, 5, 3);
+            king_beaten = 1;                                           /* a51c, then DS:1bc6 |= 2 */
         }
     }
 }
@@ -1063,7 +1063,7 @@ static void enter(Game *g)
     opp_aim = OPP_X;
     opp_kind = opp_kind_prev = 2;
     opp_ahead = opp_hidden = rear_hit = alongside = 0;
-    repair_open = go_home = 0;
+    repair_open = go_home = king_beaten = 0;
     /* 1001:be82: on Mulholland, unless it's The King, the police may be waiting (1 in 4). */
     police = fined = ticket_open = ticket_paid = 0;
     if (mulholland() && rival != KING && ((int)SDL_rand(4) == 0 || force_police)) {
@@ -1117,7 +1117,7 @@ static void leave_race(void)
      * it's back to Burger's. */
     int home = go_home || !player_car(&G->player) || stake == 5 || result == RES_ENGINE || result == RES_TRANS ||
                !car_runnable(player_car(&G->player), 1);
-    game_set_scene(G, home ? &scene_garage : &scene_street);
+    game_set_scene(G, king_beaten ? &scene_king : home ? &scene_garage : &scene_street);
 }
 
 static void repair_choice(int id)
@@ -1377,6 +1377,60 @@ static void aq_opponent(int d, int *kind, int *x, int *y, int *turn, int *tilt)
 }
 
 static void draw_opponent_mirror(void);
+static int opp_pic(int entry);
+
+/* 0dcb:ba72: a copy keeping the rows and columns whose mask bit 0x80 >> (n & 7) is set. */
+static const Image *shrink(const Image *src, uint8_t mask)
+{
+    static struct { const Image *src; uint8_t mask; Image img; } cache[48];
+    static int used;
+    if (!src) return NULL;
+    for (int k = 0; k < used; k++) if (cache[k].src == src && cache[k].mask == mask) return &cache[k].img;
+    int keep[8], n = 0;
+    for (int b = 0; b < 8; b++) keep[b] = (mask & (0x80 >> b)) != 0;
+    int w = 0, h = 0;
+    for (int x = 0; x < src->w; x++) w += keep[x & 7];
+    for (int y = 0; y < src->h; y++) h += keep[y & 7];
+    if (used == 48) used = 0;                                          /* plenty for one race */
+    Image *im = &cache[used].img;
+    SDL_free(im->pixels);
+    im->w = w; im->h = h; im->flags = src->flags;
+    im->pixels = SDL_malloc((size_t)(w > 0 ? w : 1) * (size_t)(h > 0 ? h : 1));
+    if (!im->pixels) { im->w = im->h = 0; return NULL; }
+    for (int y = 0; y < src->h; y++) {
+        if (!keep[y & 7]) continue;
+        for (int x = 0; x < src->w; x++) if (keep[x & 7]) im->pixels[n++] = src->pixels[y * src->w + x];
+    }
+    cache[used].src = src;
+    cache[used].mask = mask;
+    used++;
+    return im;
+}
+
+/* The picture for an opponent kind (37ce into DS:b7b6, the police 9a94): 0 side, 1 big rear, 2 the
+ * medium rear, 3..5 it shrunk by masks +9..11 of the record's +6 run, 6..8 kind 5 shrunk again by
+ * the +8 run, 9 the front (mirror), 10..12 it shrunk by the +0xc run. The police (set 5 at DS:aafa)
+ * have one shrunk rear for 2..6 (mask +6 run byte 0), none for 7 / 8, the front by bytes 0..2. */
+static const Image *opp_image(int kind)
+{
+    int set = sprite_set(rival_model(&G->player, rival));
+    const uint8_t *m = data_shrink_masks();
+    if (police >= 2) {
+        const uint8_t *pm = m + 0x42 * 5;
+        if (kind == 0) return game_picture(G, opp_pic(0));
+        if (kind == 1) return game_picture(G, opp_pic(1));
+        if (kind <= 6) return shrink(game_picture(G, opp_pic(2)), pm[0]);
+        if (kind <= 8) return NULL;
+        if (kind == 9) return game_picture(G, opp_pic(5));
+        return shrink(game_picture(G, opp_pic(5)), pm[0x2c + kind - 10]);
+    }
+    m += 0x42 * set;
+    if (kind <= 2) return game_picture(G, opp_pic(kind));
+    if (kind <= 5) return shrink(game_picture(G, opp_pic(2)), m[9 + kind - 3]);
+    if (kind <= 8) return shrink(shrink(game_picture(G, opp_pic(2)), m[9 + 2]), m[0x16 + 9 + kind - 6]);
+    if (kind == 9) return game_picture(G, opp_pic(5));
+    return shrink(game_picture(G, opp_pic(5)), m[0x2c + 9 + kind - 10]);
+}
 static int opp_paint(void)
 {
     Player *p = &G->player;
@@ -1393,7 +1447,6 @@ static int opp_pic(int entry)
 
 static void draw_opponent(void)
 {
-    int side_pic = opp_pic(0), big_pic = opp_pic(1), med_pic = opp_pic(2);   /* DS:aa9e: side, big and medium rear */
     int ahead = opp_ahead, kind = opp_kind;
     if (opp_hidden || kind < 0 || kind >= 9) return;
     int d = ahead < 0 ? -((-ahead) >> 3) : ahead >> 3;
@@ -1410,33 +1463,35 @@ static void draw_opponent(void)
     }
     game_set_paint(G, opp_paint());
     if (kind == 0) {                                                   /* the car beside you, cut by the pillar */
-        const Image *im = game_picture(G, side_pic);
+        const Image *im = opp_image(0);
         if (!im) return;
         int sx = im->w - x + 0x40;
         if (sx < 0) sx = 0;
         blit_clip(im, sx, 0, im->w - sx, im->h, 0, y);
     } else if (kind == 1) {
-        const Image *im = game_picture(G, big_pic);
+        const Image *im = opp_image(1);
         if (im) blit_clip(im, 0, 0, im->w, im->h, x - im->w, y - im->h + 0x11);
     } else {
-        const Image *im = game_picture(G, med_pic);
+        const Image *im = opp_image(kind);
         if (!im) return;
-        double scale = kind == 2 ? 1.0 : 12.0 / d;                     /* stands in for the pre-scaled copies */
-        if (scale > 1.0) scale = 1.0;
-        int w = (int)(im->w * scale), h = (int)(im->h * scale);
-        if (y > 0x65) y = 0x65;
+        int w = im->w, h = im->h;
+        if (!aqueduct()) {
+            if (kind >= 4) {                                           /* standing on the road he's on */
+                int g = road_ground_row((d + 1) >> 3);
+                if (y < g) y = g;
+            } else if (y > 100) y = 0x65;
+        }
         if (turn != 3) blit_turned(im, x, y, w, h, turn < 0 ? tilt : (int16_t)exe_ds_u16((uint16_t)(0x7fbe + 2 * turn)));
         else blit_scaled(im, x - w / 2, y - h, w, h);
     }
 }
 
-/* af98 for kinds 9..12: his front (picture +0x0a of the DS:aa9e record; 10..12 are pre-shrunk
- * copies in the original, scaled 12/d here) in the mirror, through 06ba / 070e with the turn
+/* af98 for kinds 9..12: his front (picture +0x0a of the DS:aa9e record; 10..12 pre-shrunk) in the mirror, through 06ba / 070e with the turn
  * taken as 10 - (a56a - his road heading). */
 static void draw_opponent_mirror(void)
 {
     if (opp_hidden || opp_kind < 9 || opp_kind > 12) return;
-    const Image *im = game_picture(G, opp_pic(5));
+    const Image *im = opp_image(opp_kind);
     if (!im) return;
     int a = opp_ahead, d = -(a < 0 ? -((-a) >> 3) : a >> 3), turn = 0, h = GROUND, rise, x, y, angle = 0;
     if (aqueduct()) {
@@ -1458,10 +1513,8 @@ static void draw_opponent_mirror(void)
     x = road_mproj_x(&view, d, opp_x, 10 - turn);
     y = road_mproj_y(&view, d, h, rise);
     if (aqueduct()) road_aq_rotate(x, y, &x, &y);
-    double scale = opp_kind == 9 ? 1.0 : 12.0 / (d > 0 ? d : 1);
-    if (scale > 1.0) scale = 1.0;
     game_set_paint(G, opp_paint());
-    road_sprite(im, x, y, (int)(im->w * scale), (int)(im->h * scale), angle);
+    road_sprite(im, x, y, im->w, im->h, angle);
 }
 
 /* 1dcb:a1c0: over the top of a wall the car rolls over, eight frames (slowly: it only tips). */

@@ -41,6 +41,10 @@ extern const char *g_rival_names[RIVAL_COUNT];
 int data_load(const char *data_dir);    /* after exe_load() */
 #define RIVALS_SIZE 396
 const uint8_t *data_rivals_initial(void);
+/* SR2_DATA's eighth block, loaded to DS:8e3c by 2a21:6e6a: per car shape 0x42 bytes, three runs of
+ * 0x16 (pointed to by the DS:aa9e record's +6 / +8 / +0xc): the masks the pre-shrunk opponent
+ * pictures are made with (0dcb:ba72 keeps the rows and columns whose bit 0x80 >> (n & 7) is set). */
+const uint8_t *data_shrink_masks(void);
 const uint8_t *data_race_sprites(void);   /* SR2_DATA -> DS:aa9e: 6 x 7 picture ids per car shape */  /* SR2_DATA's first block (DS:ab7e): the rivals' state */
 
 /* Ad text helpers: the first string of an ad is the item's name. */

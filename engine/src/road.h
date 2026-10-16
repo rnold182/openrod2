@@ -55,6 +55,10 @@ typedef struct {
 typedef struct { int object, bump; } RoadHits;
 extern RoadHits g_road_hits;
 
+/* af98's floor for the shrunk rear views: the ground row of slice `i` (DS:9ef0), or for i >= 15
+ * the highest row of road seen (975e). From the last road_draw. */
+int road_ground_row(int i);
+
 /* 1dcb:062c / 0684: a point `d` units ahead (d = distance in 1/8 segment + 4) at lateral position
  * `lat` and height `h`, `turn` / `rise` being the heading and height differences to it. */
 int road_proj_x(const RoadView *rv, int d, int lat, int turn);

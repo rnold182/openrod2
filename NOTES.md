@@ -176,7 +176,15 @@
   >= 0x3c0 none; >= 0x80 kinds 3..8 (medium rear, pre-scaled smaller); < -0x38 behind (mirror, 9..);
   -0x38..0x40: same lane -> 2, behind -> 9, left -> 0 (side view at x 0 cut to w - x + 0x40 columns);
   0x41..0x7f: left -> 1 (big rear, right edge at x, top y - h + 0x11) else 3. Changes step one kind per
-  frame (not ported). Scale bytes for the copies live in runtime data (DS:8e3c), the rebuild scales 12/d.
+  frame (not ported). The copies (37ce, 0dcb:ba72 + b7fa): a mask byte keeps the rows and columns
+  whose bit 0x80 >> (n & 7) is set (new size = bits set * (w & ~7) / 8 + bits among the first w & 7).
+  The masks: SR2_DATA's eighth block (396 bytes at file offset 1850) is read to DS:8e3c (2a21:6e6a
+  patches DS:14ea, the block table DS:14dc / sizes 14f0), and each DS:aa9e record's +6 / +8 / +0xc
+  is pointed at 8e3c + 0x42 * set + 0 / 0x16 / 0x2c. Kinds 3..5 = medium rear by +6's bytes 9..11,
+  6..8 = kind 5 shrunk again by +8's bytes 9..11, 10..12 = the front (+0xa) by +0xc's bytes 9..11;
+  the police (set 5, DS:aafa = aae4): one copy of 2036 by +6's byte 0 for kinds 2..6, none for 7 / 8,
+  2039 by +0xc's bytes 0..2. af98 stands kinds 4..8 on the ground row of their slice (DS:9ef0[(d +
+  1) >> 3], beyond 15 the highest road row 975e), kinds 2 / 3 below row 100 at 0x65.
 - Starter (0dcb:a746, a5aa): torso 0x816 at (8, 0x12), arm frames of 0x817 next to it; frame 0, then
   frame 1 from "Go" (DS:ad0a); slides left 8 px per frame once you roll (DS:a2b4 += 4), gone after 0x58.
 - Timing (8d9e/8ef4): 0xf + 0x19 ticks, then "Get ready !" for 0x6e + rand(0x67) ticks, then "Go !".
@@ -375,6 +383,17 @@
 - Results: The King: win 0x50 (Aqueduct) / 0x4f, loss 0x55 (drag) / 0x56; a626 then: lost to him ->
   47a6 = 0, ad03 = 0, 47a0 -= 3, 47a2 -= 2; beat him -> 47a6 = 1 (drag) / 2 (Mulholland), Aqueduct ->
   a51c and 1bc6 |= 2 (not rebuilt yet). Aqueduct wins count in 47a2.
+
+## The King beaten (1001:a51c, 3925:27da; rebuild scenes/king.c)
+- a626 after b584 when the Aqueduct pink-slip race against The King is won: a51c: palette 1dec, the
+  screen cleared to colour 8 (21be with DS:1e44 = 200 rows), picture 1083 ("Well, you've done it...")
+  at (8, 0x14), 3d80(0x2ee); sound vector 19 (SPECIAL playlist); 3925:27da: SR2_END (read by 2714:
+  0x1f8 bytes = 84 frame rects w, h, x word, y, -; 0x2dc bytes = 183 steps frame, x, y, delay) - the
+  sheet 1181 over 1211; a step with a non-zero delay is shown (b028 of the changed rectangle, paced
+  by 2a21:1924(10)), the next step first restores the background there (x rounded to 8); a negative
+  delay pastes 1195 (0x88 x 0x2e from (0x60, 0x68)) into the background at (0x88, 0x92) and the
+  sheet becomes 1195; a negative frame ends it, then 18e2(0x50) retraces; vector 18 (MAIN). Then
+  1bc6 |= 2 -> the game's ending 36ac (not rebuilt: the rebuild returns to the garage).
 
 ## Rebuild deviations / modern options (planned options menu)
 - Newspaper paging: next page starts at the first ad not fully shown (original repeated one entry).
