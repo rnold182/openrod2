@@ -157,7 +157,7 @@
   transmission ((100 + wear/100) in 3277: a1bc |= 0x11); brake: speed -= speed/16 + 2; speed = rpm / ratio.
   The interrupt also drives the engine sound: AdLib voice 3 "motor", bend rpm*3 - 0x1194 (2c57:0ba6),
   volume |rpm-1500|/128 + 0x50, full without a muffler; PC speaker via port 0x42 otherwise.
-- Per frame (18.2 Hz, d908): distance += DS:8016[speed] (1/64 segment), opponent the same; drag strip
+- Per frame (9.1 Hz: 11fc ends with 2a21:1924(8), a wait for 8 ticks of the 72.8 Hz timer; d908): distance += DS:8016[speed] (1/64 segment), opponent the same; drag strip
   segments 200 (DS:9ae2) .. 0x17c (DS:a2aa). Opponent (cb98): own engine stepping with shift point
   (skill - 10) * 200 + shift rpm, but held to your speed + 10 when side by side and to 70/80% of its top
   speed when far ahead (cb00 sets a speed directly). b1b2 at the line: winner, time = steps*10/6 tenths,

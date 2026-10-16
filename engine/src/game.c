@@ -1,5 +1,6 @@
 #include <string.h>
 #include "game.h"
+#include "scenes/race.h"
 
 #include "assets/exe.h"
 #include "anim.h"
@@ -161,7 +162,7 @@ void game_draw_cursor(Game *g)
 {
     int own = opt_game_cursor && g->mouse_in;          /* the Windows arrow stays away over the picture */
     if (own != !SDL_CursorVisible()) { if (own) SDL_HideCursor(); else SDL_ShowCursor(); }
-    if (!own || g->scene == &scene_intro || g->scene == &scene_race || anim_busy()) return;    /* 2d90(-4) hides it during moves */
+    if (!own || g->scene == &scene_intro || (g->scene == &scene_race && !race_shows_cursor()) || anim_busy()) return;    /* 2d90(-4) hides it during moves */
     const Image *sheet = game_picture(g, 2);
     if (!sheet) return;
     int c = g->scene == &scene_garage || g->scene == &scene_hood || g->scene == &scene_trans ||

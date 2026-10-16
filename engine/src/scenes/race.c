@@ -3,8 +3,9 @@
  * the roadside collisions (1dcb:148a), 1001:cb98 / d4cc / cf9a for the opponent, 1001:b584 result,
  * 1001:af0a the crash).
  *
- * Timing as in SR.EXE on a fast PC: one frame per BIOS tick (18.2 Hz), the engines step every third
- * frame (the interrupt's 4 x 3 divider of the 72.8 Hz clock), distance per frame from table DS:8016.
+ * Timing as in SR.EXE on a fast PC: the timer runs at 72.8 Hz (PIT divisor 0x4000), a frame waits 8
+ * ticks (2a21:1924(8) at the end of 1dcb:11fc: 9.1 Hz), the engine steps every 12th tick in the
+ * interrupt (6.07 Hz, its own clock here), distance per frame from table DS:8016.
  * The engine models, the opponent's driving, the start, the result and the road view (road.c) are
  * ports. */
 #include <math.h>
@@ -21,7 +22,9 @@
 #include "../ui/font.h"
 #include "race.h"
 
-#define FRAME_HZ   (1193182.0 / 65536.0)   /* 18.2 */
+#define TIMER_HZ   (1193182.0 / 65536.0 * 4)   /* 72.8: the timer as SR.EXE sets it */
+#define FRAME_HZ   (TIMER_HZ / 8)            /* 9.1: 11fc waits 8 ticks a frame (2a21:1924(8)) */
+#define ENGINE_HZ  (TIMER_HZ / 12)           /* 6.07: the interrupt's engine step, every 12th tick */
 #define REDLINE    0x1644
 #define VIEW_BOTTOM 100                    /* the dashboard starts here */
 #define CAM_X     0xa00                    /* DS:a564 at the start */
@@ -109,7 +112,7 @@ static Engine me, opp;
 static int rival, stake, bet;
 static int state;
 static Uint64 phase_start, last_frame;
-static double frame_acc;
+static double frame_acc, engine_acc;
 static int frame_no, wait_ticks;
 static int steps;                       /* DS:a1be: engine steps since the start */
 static long speed_sum;                  /* DS:adae */
@@ -903,7 +906,7 @@ static void enter(Game *g)
     limiter_count = 0;
     gas = brake = shift_pressed = shift_latch = 0;
     frame_no = 0;
-    frame_acc = 0;
+    frame_acc = engine_acc = 0;
     /* 1001:be82: tire wear for the run, and worn tires may give out (bc88). */
     if (you->tires.part >= 0) {
         int base = g_parts[you->tires.part].grade == 0 ? (mulholland() ? 700 : 300) : (mulholland() ? 400 : 200);
@@ -952,6 +955,10 @@ static void repair_choice(int id)
     repair_open = 0;
     leave_race();
 }
+
+int race_shows_cursor(void) { return repair_open; }
+
+static void mouse_move(Game *g, int x, int y) { (void)g; if (repair_open) dialog_mouse_move(&repair, x, y); }
 
 static void key(Game *g, SDL_Scancode sc, SDL_Keycode k)
 {
@@ -1004,10 +1011,9 @@ static void frame(void)
             cam_x += fall * 100;
             fell_steps++;
         }
-        if (++crash_ticks >= 0x1c + (crash_speed > 0x5a ? 12 : 0)) { state = R_DONE; settle(); result_screen(); }
+        if (++crash_ticks >= 13 + (crash_speed > 0x5a ? 6 : 0)) { state = R_DONE; settle(); result_screen(); }   /* 100 ticks */
         return;
     }
-    if (frame_no % 3 == 0 && state != R_DONE) engine_step();
     switch (state) {
     case R_STAGE:
         if (me.speed > 0) { result = RES_JUMPED; break; }
@@ -1228,9 +1234,21 @@ static void update(Game *g)
 {
     Uint64 now = SDL_GetTicks();
     frame_acc += (now - last_frame) * FRAME_HZ / 1000.0;
+    engine_acc += (now - last_frame) * ENGINE_HZ / 1000.0;
     last_frame = now;
     if (frame_acc > 10) frame_acc = 10;
-    while (frame_acc >= 1.0) { frame_acc -= 1.0; if (state != R_DONE) frame(); }
+    if (engine_acc > 10) engine_acc = 10;
+    for (;;) {                                   /* the interrupt and the main loop, interleaved in time */
+        double tf = (1.0 - frame_acc) / FRAME_HZ, te = (1.0 - engine_acc) / ENGINE_HZ;
+        if (frame_acc < 1.0 && engine_acc < 1.0) break;
+        if (engine_acc >= 1.0 && (frame_acc < 1.0 || te <= tf)) {
+            engine_acc -= 1.0;
+            if (state == R_STAGE || state == R_READY || state == R_GO || state == R_RACING) engine_step();
+        } else {
+            frame_acc -= 1.0;
+            if (state != R_DONE) frame();
+        }
+    }
     if (state < R_CRASH) engine_sound_update();
 
     Video *v = &g->video;
@@ -1261,7 +1279,7 @@ static void update(Game *g)
         if (t != 2) game_draw_picture(g, t == 0 ? 0x800 : 0x811, 0x40, 0x5b);
         game_draw_picture(g, 0x812, 0, 0x78);
         if (crash_speed > 0x5a)
-            for (int k = 0; k < 3 && (state == R_DONE || crash_ticks > 0x1c + 4 * k); k++)
+            for (int k = 0; k < 3 && (state == R_DONE || crash_ticks > 13 + 2 * k); k++)
                 game_draw_picture(g, ds16((uint16_t)(0x5136 + 6 * k)), ds16((uint16_t)(0x5138 + 6 * k)), ds16((uint16_t)(0x513a + 6 * k)));
     }
     game_draw_status_bar(g, ready_text[0] ? ready_text : NULL);
@@ -1274,4 +1292,4 @@ static void update(Game *g)
     }
 }
 
-const Scene scene_race = { enter, key, NULL, NULL, click, update };
+const Scene scene_race = { enter, key, NULL, mouse_move, click, update };
