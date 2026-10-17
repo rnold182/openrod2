@@ -269,6 +269,11 @@ static void draw_car(Game *g, int x, double moved)
     game_set_paint(g, c->colour);
     /* 2a21:80ec: the car's lowest BAND rows above the cut (DS:1bd0[3]) only cover the black under
      * it, so the pumps stand in front; its last CUT_ROWS rows aren't drawn at all. */
+    /* The two big pumps (x 16..57 and 184..225 from row 124 of 1072) stand in front of it all;
+     * the rebuild keeps them by their outline. */
+    static uint8_t pumps[2][CAR_BOTTOM - 124 + 1][42];
+    for (int p = 0; p < 2; p++)
+        for (int r = 0; r <= CAR_BOTTOM - 124; r++) memcpy(pumps[p][r], &g->video.fb[(124 + r) * SCREEN_W + (p ? 184 : 16)], 42);
     static uint8_t keep[(CUT_ROWS + BAND) * SCREEN_W];
     uint8_t *below = &g->video.fb[(CAR_BOTTOM - CUT_ROWS - BAND + 1) * SCREEN_W];
     memcpy(keep, below, sizeof keep);
@@ -276,6 +281,8 @@ static void draw_car(Game *g, int x, double moved)
     car_draw_ex(&g->video, g, c->model, c->body, blower_of(c), tires, ((int)moved / 6) & 3, x, CAR_BOTTOM);
     for (int k = 0; k < BAND * SCREEN_W; k++) if (keep[k]) below[k] = keep[k];
     memcpy(below + BAND * SCREEN_W, keep + BAND * SCREEN_W, CUT_ROWS * SCREEN_W);
+    for (int p = 0; p < 2; p++)
+        for (int r = 0; r <= CAR_BOTTOM - 124; r++) memcpy(&g->video.fb[(124 + r) * SCREEN_W + (p ? 184 : 16)], pumps[p][r], 42);
 }
 
 /* A piece of 1000: entries (x, w) 0 (0, 8), 1 (8, 8), 2 (24, 16), 3 (40, 8) the nozzles on hooks

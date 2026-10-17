@@ -143,6 +143,8 @@
   fuel + step and $1 (1df4); stops when full or broke.
 - The car's lowest 25 rows above the cut (DS:1bd0[3]; 2a21:80ec fills a buffer with colour 1 and
   copies those rows onto it) only cover the black under the car: the pumps' fronts stay in front.
+  That isn't the whole story (a tall car still covered the pumps' tops); the rebuild also keeps the
+  two big pumps' outlines (x 16..57, 184..225 from row 124) in front.
 - 0xa0 idle polls (never reset, about 15 s) bring the attendant (1c10: picture 1150, six 24 x 20
   frames at (0xc0, 0x59), 0x10 ticks each; all hotspots off), 0x45 "Yo, you need full service,
   dummy!". If you had bought gas you leave at once and pay $10 (twice with a nozzle in the tank and
