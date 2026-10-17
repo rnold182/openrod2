@@ -80,6 +80,9 @@ OpenRod 2 is a from-scratch rebuild of **Street Rod 2** (1990, DOS) in plain C +
 - The opponent's shrunk pictures now use the game's own masks (SR2_DATA block at DS:8e3c), ahead and
   in the mirror.
 
+- Garage and street animations: cars' motor sound at Burger's and in the garage, your car driving
+  into the garage, switching cars (old out, new in), sliding under the car; list arrows fixed.
+
 **Recent fixes:**
 - At Burger's, the parked car's bottom 8 rows are left undrawn (DS:1bde[2]), as in the original.
 - The cursor shows over the crash dialog.
@@ -87,11 +90,24 @@ OpenRod 2 is a from-scratch rebuild of **Street Rod 2** (1990, DOS) in plain C +
   the starter is still there disqualifies you (msg 0x78), as in the original.
 
 ## Next steps (in this order)
-1. **The gas station.** Garage "Wanna tank?" hotspot id 15, mode 3, 3925:2104, dialog 22.
-2. **Grudge Night.** Id 17, Wednesdays only (63e0() % 7 == 2), $30, fuel > 23, mode 4, 3925:1970 (race types 2/4 use tables 60be/61a6/6572).
-3. **Street details.** Cars driving in and out with their motor sound (2a21:89fa, 1001:20a0/2176), the carhop (2a21:945a, picture 0x458), rival taunts (1001:9432).
-4. **End of summer and the other endings.** Day > 90 → DS:1bc6, 1001:36ac / 348a. Also jail when you can't pay a police fine (b584 returns 4 → 1001:a9fc, 1bc6 |= 4; see NOTES "The police on Mulholland"), and after beating The King (scenes/king.c ends with 1bc6 |= 2, currently back to the garage).
-5. **Options menu** for every `opt_*` setting.
+1. **The drive between places** (the user asked for it). 1001:8c68 (garage → Burger's 1bc8 = 2, gas
+   station 3, Grudge Night 4): fuel -2, add6 = 0 (town), b7ae = 0 (not a race), bc88 / 0736 (start
+   segment by 1bc8: 1 → 10, 2 / 4 → 0x41, 3 → 0x73), 8d9e → 2a21:77f4 with the race screen and
+   dashboard. Skipped when you click during 8d9e's 3d80(0xf) / 3d80(0x19) waits (DS:3bf6).
+   - 8ef4's drive branch: 20a0 motor, status DS:5006, gear 1; per frame rpm a10e += DS:501a[gear]
+     (max 0x125c), speed = rpm / 5024[gear], next gear at 0x1195 up to a11c; ends (2176) when L or R
+     of segment pos + 1 has bit 1 (build_town marks R(0x2c), L(0x6c), L(0x9c)) or on a click.
+   - 1774 when b7ae == 0: a562 = 0x30 (0x20 on slow PCs) a frame, the autopilot (12ca), 1758(1) once
+     L(pos + 7) & 1, 1758(-1) once R(pos + 6) & 1 (turning in, DS:7ba0 / 7b9e).
+   - Not ported: the town view - 4322's branch for road flag 1, 52e2 picture objects (the buildings,
+     side flags 4 / 8 / 0x10 / 0x80 / 0x100 / 0x8000, gantry pictures 0x2000), 4e70 (sidewalks /
+     crossings, see the mirror's 5aee too), 3e66 for town, 1758, 8c2c, and starting the drive from
+     the garage (rebuild garage.c G_STREET etc.) and arriving (street / garage modes).
+2. **The gas station.** Garage "Wanna tank?" hotspot id 15, mode 3, 3925:2104, dialog 22.
+3. **Grudge Night.** Id 17, Wednesdays only (63e0() % 7 == 2), $30, fuel > 23, mode 4, 3925:1970 (race types 2/4 use tables 60be/61a6/6572).
+4. **Street details.** Cars driving in and out with their motor sound (2a21:89fa, 1001:20a0/2176), the carhop (2a21:945a, picture 0x458), rival taunts (1001:9432).
+5. **End of summer and the other endings.** Day > 90 → DS:1bc6, 1001:36ac / 348a. Also jail when you can't pay a police fine (b584 returns 4 → 1001:a9fc, 1bc6 |= 4; see NOTES "The police on Mulholland"), and after beating The King (scenes/king.c ends with 1bc6 |= 2, currently back to the garage).
+6. **Options menu** for every `opt_*` setting.
 
 ## Starter prompt for the new session
 > We're continuing OpenRod 2, my C/SDL3 rebuild of Street Rod 2 in C:\Users\inact\SR2. Read HANDOVER.md in the repo first (rules, build/test commands, where we are, next steps), then NOTES.md's race sections ("The drag race", "The roads", "Steering, collisions and Mulholland Drive") and engine/src/scenes/race.c + engine/src/road.c. Keep exactly the same approach: faithful ports from out/sr_decompiled.c and the disassembler, original addresses in comments, findings into NOTES.md, modern touches only as opt_* options, commit + push after each step, build both build_dev and build (check openrod2.exe isn't running), test with scripted runs and screenshots. Next task: step 1 in HANDOVER.md.
