@@ -74,6 +74,8 @@ void cheats_run(Game *g, const char *line)
         say("Added %s", g_models[m].ad);
     } else if (!strcmp(cmd, "part")) {
         if (!strcmp(arg, "list")) {
+            if (SDL_getenv("SR2_DEBUG"))
+                for (int k = 0; k < PART_COUNT; k++) SDL_Log("part %d type %d grade %d %.30s", k, g_parts[k].type, g_parts[k].grade, g_parts[k].ad);
             for (int k = 0; k < PART_COUNT; k += 2)
                 say("%d %.26s  %d %.26s", k, g_parts[k].ad, k + 1, g_parts[k + 1].ad);
             return;

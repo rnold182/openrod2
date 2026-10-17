@@ -193,6 +193,20 @@
   (voice 4 vol 0x5a note 0x52), 13 "turn" 0x61+rand(8) clink, 14 "turn" 0x3d clunk, 17 "turn1" 0x10
   (bolt turned), 18 init: voice 4 = "paint", voice 5 = "part".
 
+## Changing tires (1001:71f6 -> 2a21:b9bc; rebuild garage.c tires_anim_*)
+- 71f6: parts list (7 = tires), swap (715a), b9bc(DS:4d30 + old grade * 8, + new grade * 8: four
+  turning frames each), time +0x444. Movers: 9d38(x, bottom, sprites, ...) + a0d4(m, 0, steps, dx, dy).
+- b9bc: the jack (DS:79e6: 1021, 1020, 1022) slides from bottom 0xb9 up to 0x99 at x 0x90 (32 steps,
+  18e2(3) each, sound vector 6 = voice 5 vol 0x4a note 0x1c), drawn into the background behind the
+  car; the car (bottom 0x9e) goes up 7 steps while the jack pumps (frames 1, 2, 1, 0..., vector 7 =
+  voice 3 "turn1" 0x7f note 0x0e every pump, the mover held back every other pump); b358 for the
+  wheel at DS:9bf4[model] +0, then +1; the car comes down (9 steps from bottom 0x9a in the original)
+  and the jack slides back.
+- b358(x): the brake drum 1148 (b16e) shows in the arch; the tire drops 8 (from bottom 0x9a), rolls out
+  to the left (4 frames, 2 px and 18e2(2) a step, (w + x) / 2 steps, vector 0 = voice 5 vol 0x38 note
+  0x0e), the new one rolls in ((w + x) / 2 + 1 steps) at bottom 0xa1 and goes up 8; vector 14 (clunk),
+  9b40(6). 1151 is the shadow under a loose wheel, 1138 the car's.
+
 ## Saved games (1001:5d82 save, 1001:59e2 load, 1001:58b2 slot scan)
 - `<drive>:HOTROD<n>.SAV`, n = 0..14, in the current directory (the rebuild uses the game folder).
 - Order: 0x38 player block (DS:a9d8: name +0, money long +0x24, aa00/aa01 = 1 in a new game, list heads

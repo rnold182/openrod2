@@ -3,6 +3,7 @@
 #include "../car.h"
 #include "../data.h"
 #include "../game.h"
+#include "../options.h"
 #include "../sound.h"
 #include "../ui/font.h"
 #include "../ui/partlist.h"
@@ -44,6 +45,11 @@ static void open_modal(int kind, int dialog)
 static int drive;                               /* 0, 4 driving in, 6 driving out */
 static Car out_car;                             /* the car driving out */
 static Uint64 drive_start;
+
+static int ta;                                  /* the tire change (2a21:b9bc) running */
+static void tires_anim_step(Game *g);
+static void tires_anim_draw_jack(Game *g);
+static void tires_anim_draw_car(Game *g, Car *c);
 
 static int blower_of(const Car *c) { return c->intake.part >= 0 && g_parts[c->intake.part].grade == 8; }
 
@@ -316,6 +322,145 @@ static void choose_modal(Game *g, int i)
     }
 }
 
+/* ---- 2a21:b9bc: changing the tires. The jack (1020, frames 1021 / 1020 / 1022 at DS:79e6) slides in
+ * behind the car from its place (bottom 0xb9 -> 0x99, 32 steps of 3 retraces, sound vector 6), pumps
+ * the car up 7 pixels (a step every other pump, vector 7 each pump); then for each wheel (b358, the
+ * model's wheel x DS:9bf4 +0, then +1) the tire drops 8, rolls out to the left 2 pixels a step (its
+ * four turning frames DS:4d30, 2 retraces a step, vector 0), the new one rolls in and goes up 8, a
+ * clunk (vector 14) and 6 frames' wait; the brake drum (1148) shows while the wheel is off. Then the
+ * car comes down and the jack slides back. The original lowers 9 steps from a sprite 4 rows lower;
+ * the rebuild lowers the 7 it lifted. */
+enum { TA_NONE, TA_JACK_IN, TA_LIFT, TA_DROP, TA_OUT, TA_IN, TA_UP, TA_WAIT, TA_LOWER, TA_JACK_OUT };
+static int ta_wheel, ta_old, ta_new, ta_swapped[2];
+static Uint64 ta_start;
+#define RETRACE_MS (1000.0 / 70.0)
+
+static int ta_steps(double retraces) { return (int)((SDL_GetTicks() - ta_start) / (retraces * RETRACE_MS)); }
+static void ta_go(int phase) { ta = phase; ta_start = SDL_GetTicks(); }
+
+static void voice_note(int voice, const char *timbre, int vol, int note)
+{
+    sound_voice_timbre(voice, timbre, vol);
+    sound_voice_note_off(voice);
+    sound_voice_note_on(voice, note);
+}
+
+/* The pump's frames: the jack handle goes 1, 2, 1, 0, ... and the car moves on every other pump. */
+static int pump_frame(int k) { static const int f[4] = { 1, 2, 1, 0 }; return f[k & 3]; }
+
+static void tires_anim_start(int old_grade, int new_grade)
+{
+    ta_old = old_grade;
+    ta_new = new_grade;
+    ta_wheel = 0;
+    ta_swapped[0] = ta_swapped[1] = 0;
+    ta_go(TA_JACK_IN);
+    voice_note(5, "part", 0x4a, 0x1c);                                  /* vector 6 */
+}
+
+static int car_wheel_x(const Car *c, int k) { return g_models[c->model].geo[k]; }
+
+/* Advances the animation; called while drawing. */
+static void tires_anim_step(Game *g)
+{
+    Car *c = player_car(&g->player);
+    if (!c) { ta = TA_NONE; return; }
+    const Image *body = game_picture(g, g_models[c->model].picture);
+    int cx = body ? car_garage_x(body->w) : 0, wx = cx + car_wheel_x(c, ta_wheel);
+    switch (ta) {
+    case TA_JACK_IN:
+        if (ta_steps(3) >= 32) { sound_voice_note_off(5); ta_go(TA_LIFT); }
+        break;
+    case TA_LIFT: case TA_LOWER: {
+        static int last = -1;
+        int k = ta_steps(3);
+        if (k != last) { last = k; voice_note(3, "turn1", 0x7f, 0x0e); }   /* vector 7, every pump */
+        if (k >= 14) {
+            sound_voice_note_off(3);
+            last = -1;
+            if (ta == TA_LIFT) ta_go(ta_old >= 0 ? TA_DROP : TA_IN);
+            else { ta_go(TA_JACK_OUT); voice_note(5, "part", 0x4a, 0x1c); }
+        }
+        break;
+    }
+    case TA_DROP:
+        if (ta_steps(3) >= 8) { ta_go(TA_OUT); voice_note(5, "part", 0x38, 0x0e); }   /* vector 0 */
+        break;
+    case TA_OUT:
+        if (ta_steps(2) >= (32 + wx) / 2) ta_go(TA_IN);
+        break;
+    case TA_IN:
+        if (ta_steps(2) >= (32 + wx) / 2 + 1) { sound_voice_note_off(5); ta_go(TA_UP); }
+        break;
+    case TA_UP:
+        if (ta_steps(3) >= 8) { ta_swapped[ta_wheel] = 1; sound_sfx(SFX_CLUNK); ta_go(TA_WAIT); }   /* vector 14 */
+        break;
+    case TA_WAIT:
+        if (ta_steps(1) >= 6) {                                           /* 9b40(6) */
+            if (ta_wheel == 0) { ta_wheel = 1; ta_go(ta_old >= 0 ? TA_DROP : TA_IN); }
+            else ta_go(TA_LOWER);
+        }
+        break;
+    case TA_JACK_OUT:
+        if (ta_steps(3) >= 32) { sound_voice_note_off(5); ta = TA_NONE; }
+        break;
+    }
+}
+
+static int tires_anim_lift(void)
+{
+    int k = SDL_min(ta_steps(3), 13);
+    int moved = (k + 1) / 2;                                            /* every other pump */
+    if (ta == TA_LIFT) return moved;
+    if (ta == TA_LOWER) return 7 - moved;
+    if (ta >= TA_DROP && ta <= TA_WAIT) return 7;
+    return 0;
+}
+
+/* The jack, behind the car. */
+static void tires_anim_draw_jack(Game *g)
+{
+    static const int pic[3] = { 1021, 1020, 1022 };
+    int bottom = 0x99, f = 1;
+    if (ta == TA_JACK_IN) bottom = 0xb9 - SDL_min(ta_steps(3), 32);
+    else if (ta == TA_JACK_OUT) bottom = 0x99 + SDL_min(ta_steps(3), 32);
+    else if (ta == TA_LIFT || ta == TA_LOWER) f = pump_frame(SDL_min(ta_steps(3), 13));
+    const Image *im = game_picture(g, pic[f]);
+    if (im) game_draw_picture(g, pic[f], 0x90, bottom - im->h + 1);
+}
+
+static void tires_anim_draw_car(Game *g, Car *c)
+{
+    const Image *body = game_picture(g, g_models[c->model].picture);
+    if (!body) return;
+    int x = car_garage_x(body->w), bottom = 0x9e - tires_anim_lift();
+    int blower = c->intake.part >= 0 && g_parts[c->intake.part].grade == 8;
+    car_draw_ex(&g->video, g, c->model, c->body, blower, -1, 0, x, bottom);
+    for (int k = 0; k < 2; k++) {
+        int wx = x + car_wheel_x(c, k);
+        int on = !(k == ta_wheel && ta >= TA_DROP && ta <= TA_UP);
+        int grade = ta_swapped[k] ? ta_new : ta_old;
+        if (on && grade >= 0) {
+            const Image *w = game_picture(g, tire_picture(grade, 0));
+            if (w) video_blit(&g->video, w, wx, bottom - w->h + 1);
+        } else {
+            const Image *drum = game_picture(g, 1148);                    /* b16e: the brake drum */
+            if (drum) video_blit(&g->video, drum, wx - 4, bottom - 13 - 11);
+        }
+    }
+    /* The tire on its way. */
+    int wx = x + car_wheel_x(c, ta_wheel), tb = -1, tx = wx, grade = ta_old, frame = 0;
+    int k = ta_steps(ta == TA_OUT || ta == TA_IN ? 2 : 3);
+    if (ta == TA_DROP) tb = bottom + SDL_min(k, 8);
+    else if (ta == TA_OUT) { tb = bottom + 8; tx = wx - 2 * k; frame = k & 3; }
+    else if (ta == TA_IN) { tb = bottom + 8; tx = SDL_min(-32 + 2 * k, wx); grade = ta_new; frame = (-k) & 3; }
+    else if (ta == TA_UP) { tb = bottom + 8 - SDL_min(k, 8); grade = ta_new; }
+    if (tb >= 0 && grade >= 0) {
+        const Image *w = game_picture(g, tire_picture(grade, frame));
+        if (w) video_blit(&g->video, w, tx, tb - w->h + 1);
+    }
+}
+
 /* Fit the chosen set of tires; the old set goes to the spares. */
 static void tires_picked(Game *g, int r)
 {
@@ -324,16 +469,18 @@ static void tires_picked(Game *g, int r)
     Player *p = &g->player;
     PartInst t = p->parts[r];
     player_remove_spare(p, r);
+    int old = c->tires.part >= 0 ? g_parts[c->tires.part].grade : -1;
     if (c->tires.part >= 0) { player_add_spare(p, c->tires); c->price = (int16_t)(c->price - c->tires.value); }
     c->tires = t;
     c->price = (int16_t)(c->price + t.value);
     p->time_actions += 0x444;
+    if (opt_animations) tires_anim_start(old, g_parts[t.part].grade);
 }
 
 static void key(Game *g, SDL_Scancode sc, SDL_Keycode k)
 {
     (void)k;
-    if (drive) return;
+    if (drive || ta) return;
     if (deals_active()) deals_key(g, sc, k);
     else if (tires.active) tires_picked(g, partlist_key(&tires, sc));
     else if (modal_kind) choose_modal(g, dialog_key(&modal, sc));
@@ -351,7 +498,7 @@ static void mouse_move(Game *g, int x, int y)
 
 static void click(Game *g, int x, int y)
 {
-    if (drive) return;
+    if (drive || ta) return;
     if (deals_active()) deals_click(g, x, y);
     else if (tires.active) tires_picked(g, partlist_click(&tires, x, y));
     else if (modal_kind) choose_modal(g, dialog_click(&modal, x, y));
@@ -372,9 +519,12 @@ void garage_draw_scene(Game *g, int cx, int cy)
     game_draw_picture(g, 1018, 0, 0);
     int moved = cx != 0x50 || cy != 0xac;
     if (moved) game_draw_picture(g, 1198, cx, cy);
-    game_draw_picture(g, 1020, 0x90, 0xa3);
+    if (ta) { tires_anim_step(g); }
+    if (ta) tires_anim_draw_jack(g);
+    else game_draw_picture(g, 1020, 0x90, 0xa3);
     if (!moved) game_draw_picture(g, 1198, cx, cy);
-    if (drive) draw_drive(g);
+    if (ta && car) tires_anim_draw_car(g, car);
+    else if (drive) draw_drive(g);
     else if (car) {
         const Image *body = game_picture(g, g_models[car->model].picture);
         if (body) {
