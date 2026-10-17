@@ -183,6 +183,7 @@ void game_draw_cursor(Game *g)
     if (!sheet) return;
     int c = g->scene == &scene_garage || g->scene == &scene_hood || g->scene == &scene_trans ||
             g->scene == &scene_under ? CURSOR_WRENCH : CURSOR_HAND;     /* 1001:6912 picks 0, menus 1 */
+    if (g->scene == &scene_gas && gas_shows_nozzle()) c = CURSOR_NOZZLE;   /* 2d90(2) */
     int hx = (int16_t)exe_ds_u16((uint16_t)(0x200c + 4 * c)), hy = (int16_t)exe_ds_u16((uint16_t)(0x200e + 4 * c));
     video_blit_part(&g->video, sheet, 0, c * 16, 16, 16, g->mouse_x - hx, g->mouse_y - hy);
 }

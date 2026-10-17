@@ -92,7 +92,7 @@ OpenRod 2 is a from-scratch rebuild of **Street Rod 2** (1990, DOS) in plain C +
 ## Next steps (in this order)
 1. **Check the town drive against the original** (done in race.c / road.c, NOTES "The drive through
    town"); the gas station and Grudge Night will call town_drive(g, 3 / 4, ...).
-2. **The gas station.** Garage "Wanna tank?" hotspot id 15, mode 3, 3925:2104, dialog 22.
+2. **The gas station** - done (scenes/gas.c, NOTES "The gas station"); not compared with the original.
 3. **Grudge Night.** Id 17, Wednesdays only (63e0() % 7 == 2), $30, fuel > 23, mode 4, 3925:1970 (race types 2/4 use tables 60be/61a6/6572).
 4. **Street details.** The carhop (2a21:945a, picture 0x458), rival taunts (1001:9432).
 5. **End of summer and the other endings.** Day > 90 → DS:1bc6, 1001:36ac / 348a. Also jail when you can't pay a police fine (b584 returns 4 → 1001:a9fc, 1bc6 |= 4; see NOTES "The police on Mulholland"), and after beating The King (scenes/king.c ends with 1bc6 |= 2, currently back to the garage).

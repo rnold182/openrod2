@@ -71,7 +71,7 @@ static void enter(Game *g)
     tires.active = 0;
     drive = 0;
     const Scene *from = g->prev_scene;
-    if (from == &scene_street || from == &scene_race || from == &scene_king || from == &scene_files || from == &scene_license)
+    if (from == &scene_street || from == &scene_race || from == &scene_gas || from == &scene_king || from == &scene_files || from == &scene_license)
         drive_in(g);
 }
 
@@ -141,6 +141,17 @@ static void choose(Game *g, int i)
         if (car->fuel <= 8) { game_message(g, 36); break; }               /* "...not enough gas to cruise down to Burger's." */
         g->player.time_actions += 0x222;
         town_drive(g, 2, &scene_street);                                  /* 1bc8 = 2, 8c68, then a626 */
+        break;
+    }
+    case G_TANK: {                          /* 1001:4dd6 case 15 */
+        Car *car = player_car(&g->player);
+        if (g->player.car_count >= 16) { game_message(g, 34); break; }
+        if (g->player.part_count > 180) { game_message(g, 35); break; }
+        if (!car_runnable(car, 1)) { game_message(g, 39); break; }
+        if (car->fuel >= 0x96) { game_message(g, 0x25); break; }         /* "You've got a full tank!" */
+        if (g->player.money == 0) { game_message(g, 0x26); break; }      /* "Gas ain't free!" */
+        town_drive(g, 3, &scene_gas);                                     /* 1bc8 = 3, 8c68, then 3925:2104 */
+        g->player.time_actions += 0x222;
         break;
     }
     case G_HOOD:

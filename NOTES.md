@@ -115,6 +115,37 @@
 - The mirror (5aee): 5122 = 50c4 / 50f4 (4e70: 4c1c but the upper storey half on the left and full
   on the right) + 4852 (sidewalks, no joints); corners 51aa sides reversed; side flag 1 stays a lamp.
 
+## The gas station (3925:2104, dialog 22; rebuild scenes/gas.c)
+- Garage "Wanna tank ?" (id 15): 3e08 (cars / parts), runnable (msg 39), fuel < 0x96 (else 0x25 "You've
+  got a full tank!"), money (else 0x26 "Gas ain't free!"), then 1bc8 3, 8c68 (the drive), 2104, time
+  +0x222 twice. 2104: palette 0x1dda, picture 1072, your car drives in (89fa mode 4, bottom 0xb9,
+  x ((0x140 - w) / 2 + 4) & ~7, its last DS:1bde[3] = 5 rows not drawn); the tank cap is at DS:ad62 /
+  ad64 = the model's DS:9bf4 bytes 10 / 11 (CarModel.geo) + the car's corner.
+- Picture 1000: 6 pieces (DS:5104 x, 50f8 w, 0x3a high) at y 0x7b: 0 / 3 the outer nozzles (x 8 / 224,
+  drawn before the car), 1 / 2 the middle ones on their hooks (x 56 / 176 = DS:50f2), 4 / 5 the same
+  hooks with the hose pulled off; 89fa (1bc8 3) composites the car under them (2a21:8268) into
+  DS:9a4a / 9acc, so they stand in front of the car. Cap 1111 (8 x 7) at the cap, the nozzle in the
+  tank 1110 (24 x 12) at cap - (0x10, 5) (1d00).
+- The loop polls 1d02(7) (a click, or 0 after 7 ticks) and switches (jump table 3925:2702): 0 idle, 1
+  cap, 2-5 the hooks, 6 / 7 the labels (0x64 "Take a pump, dummy!"), 8 back (fuel > 4, else 0x63).
+  Hooks with the hand: 2 / 5 -> 0x62 "Use another pump"; 3 / 4 take nozzle 1 (high octane, 0x14 tenths
+  a step) / 2 (regular, 0xf), nozzle cursor (2d90(2)), only that hook and the cap (rect cap - (1, 1),
+  10 x 9) active (1bba). With the nozzle: its hook hangs it up (all but the cap active again, 1b28) -
+  or, with no money or after buying, leaves; the cap, if room (0xb9 - fuel >= step) and money, puts
+  it in (pump sound: vector 4, 2c57:0d7c, voice 4 "paint" 0x6a note 0x54), hand cursor, only the cap
+  active (rect cap - (0xa, 5), 0x12 x 0xc), pumping; else 0x25 / 0x26. The cap while it's in: out
+  again (0x46 "It's not full, speedy!" when there's room and money).
+- Pumping: every poll the pump's counter DS:9160 +1, shown as six single-pixel lamps (1e08: x 44 / 42 /
+  40, y 134 / 139, regular pump + 0x9b; bits 1 4 16 / 2 8 32; colour 4 lit, 5 dark); every 8 polls
+  fuel + step and $1 (1df4); stops when full or broke.
+- 0xa0 idle polls (never reset, about 15 s) bring the attendant (1c10: picture 1150, six 24 x 20
+  frames at (0xc0, 0x59), 0x10 ticks each; all hotspots off), 0x45 "Yo, you need full service,
+  dummy!". If you had bought gas you leave at once and pay $10 (twice with a nozzle in the tank and
+  one in hand). Otherwise he fills up with the nozzle in your hand, or the high octane one, at 0x10 a
+  step (regular in hand) or 0xc, and you leave when it's full.
+- Leaving (1f38): fuel capped at 0xaa, lamps off, 89fa mode 2 (off to the right), then 1bc8 1 and
+  8c68: the drive home.
+
 ## Cars driving in and out (2a21:89fa)
 - Modes: 1 arrive / 2 leave at Burger's (1001:953c), 4 your car drives into the garage from the left,
   6 a car drives out to the right (the old one when switching cars, 1001:6912 param 3), 3 / 7 / 8
