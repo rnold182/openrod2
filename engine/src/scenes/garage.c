@@ -323,7 +323,7 @@ static void choose_modal(Game *g, int i)
 }
 
 /* ---- 2a21:b9bc: changing the tires. The jack (1020, frames 1021 / 1020 / 1022 at DS:79e6) slides in
- * behind the car from its place (bottom 0xb9 -> 0x99, 32 steps of 3 retraces, sound vector 6), pumps
+ * under the car (in front of it on the screen) from its place (bottom 0xb9 -> 0x99, 32 steps of 3 retraces, sound vector 6), pumps
  * the car up 7 pixels (a step every other pump, vector 7 each pump); then for each wheel (b358, the
  * model's wheel x DS:9bf4 +0, then +1) the tire drops 8, rolls out to the left 2 pixels a step (its
  * four turning frames DS:4d30, 2 retraces a step, vector 0), the new one rolls in and goes up 8, a
@@ -417,7 +417,7 @@ static int tires_anim_lift(void)
     return 0;
 }
 
-/* The jack. b9bc puts it into the background behind the car; the rebuild draws it in front. */
+/* The jack, in front of the car (checked against the original). */
 static void tires_anim_draw_jack(Game *g)
 {
     static const int pic[3] = { 1021, 1020, 1022 };
@@ -522,7 +522,7 @@ void garage_draw_scene(Game *g, int cx, int cy)
     if (ta) { tires_anim_step(g); }
     if (!ta) game_draw_picture(g, 1020, 0x90, 0xa3);
     if (!moved) game_draw_picture(g, 1198, cx, cy);
-    if (ta && car) { tires_anim_draw_car(g, car); tires_anim_draw_jack(g); }   /* the jack in front (user's call) */
+    if (ta && car) { tires_anim_draw_car(g, car); tires_anim_draw_jack(g); }   /* the jack in front, as in the original */
     else if (drive) draw_drive(g);
     else if (car) {
         const Image *body = game_picture(g, g_models[car->model].picture);
