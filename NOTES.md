@@ -85,6 +85,36 @@
   gear when it changes (2a21:1f5e: DS:1e1e "0".."4", "N", "D" for a124 + 4) at the next 8 px after
   the label; nothing before the race starts. Checked against the original (DOSBox screenshots).
 
+## The drive through town (1001:8c68; rebuild race.c town_*, road.c town parts)
+- 8c68 (DS:1bc8 = where to: 1 home, 2 Burger's, 3 the gas station, 4 Grudge Night): fuel -2 (0 below
+  3), add6 = 0, b7ae = 0, bc88, 0736 (start segment 1 -> 10, 2 / 4 -> 0x41, 3 -> 0x73), then 8d9e:
+  the race screen, waits 3d80(0xf) and 3d80(0x19); a click in the second wait (DS:3bf6) skips the
+  drive (9b0e instead of 77f4). Garage "Hit the street" -> 1bc8 2, 8c68, a626; Burger's "back to the
+  garage" -> 1bc8 1, 8c68.
+- 8ef4's town branch: state 0 starts the motor (20a0; DS:1bca is 0, so the pitch is the race's, from
+  rpm), "Cruising in town..." (DS:5006), gear 1, rpm step DS:501a[0] = 42. Each frame: ends (2176) when
+  L or R of pos + 1 has bit 1 (build_town: R(0x2c) garage, L(0x6c) Burger's, L(0x9c) gas station) or
+  on a click / Esc (8c2c); rpm += step (max 0x125c), speed = rpm / DS:5024[gear]; from 0x1195 up a
+  gear: step DS:501a[gear], rpm = 5024[gear] * speed. Steps 42 / 26 / 12 / 8 / 4, ratios - / 200 / 125
+  / 71 / 56. The interrupt's engine model isn't used.
+- 1dcb:1774 with b7ae 0: 0x30 / 64 of a segment a frame whatever the speed (0x20 on slow PCs); the car
+  slides by the heading as in the races; once L(pos + 7) & 1 the heading goes +3 a frame (1758(1),
+  DS:7ba0), once R(pos + 6) & 1 -3 (7b9e): turning in. No starter (a5aa only for races).
+- The view: 37ce puts 2004 over the hills (at 0x2c, 0xc) and the destination's sign sheet DS:7e1a[1bc8]
+  (2033 GARAGE, 2032 DRIVE IN, 2034 GAS; races 2047 COUNTY LINE) and the billboards 0x801 / 0x802
+  (2049 / 2050). 3e66 with b7ae 0 doesn't scroll: city rows to y 0x12, hills to 0x2f, colour 1 from
+  0x3f down (the street). 4322's town branch draws only the sidewalks (colour 4; on side flag 0x80 the
+  inner half grass, colour 9), nothing on a crossing (road flag 4); on near slices (i < 6) a dark row
+  (2) where the row count equals a local never set ([bp-0x22]) - taken as the first row. 50a8 first
+  draws the buildings (504a / 507a -> 4c1c): quads from the sidewalk edge up to eye height (y19)
+  colour 3 (2 on flag 0x10), flag 4 an upper storey colour 4 (half as high, as high with 8), end walls
+  before crossings. 6a32 in town: side flag 1 -> 52e2 the sign at ((gy + y19) / 2), 0x100 trees at the
+  kerb, 0x40 -> 51aa (shape kind 2, 8 sizes: crossing corners) instead of 7 / 8, no 2-flag objects;
+  gantries (55ce) carry billboard 2 (0x4000) or 3. 52e2: sheet sizes DS:7f02 (x, w, h) by clamp(9 - i,
+  0, 6); side 1 ends at x, -1 starts at x, 0 centred and lifted h / 2.
+- The mirror (5aee): 5122 = 50c4 / 50f4 (4e70: 4c1c but the upper storey half on the left and full
+  on the right) + 4852 (sidewalks, no joints); corners 51aa sides reversed; side flag 1 stays a lamp.
+
 ## Cars driving in and out (2a21:89fa)
 - Modes: 1 arrive / 2 leave at Burger's (1001:953c), 4 your car drives into the garage from the left,
   6 a car drives out to the right (the old one when switching cars, 1001:6912 param 3), 3 / 7 / 8

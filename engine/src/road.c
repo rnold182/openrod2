@@ -586,6 +586,13 @@ static void make_page(Game *g, int race)               /* 1dcb:37ce */
     page_put(g, 0x7d2, 0x66);
     const Image *hills = game_picture(g, 0x807);
     if (hills) page_put(g, 0x807, 200 - hills->h);
+    const Image *strip = game_picture(g, 0x7d4);                       /* town: 2004 over the hills at (0x2c, 0xc) */
+    if (race == RACE_TOWN && hills && strip)
+        for (int r = 0; r < strip->h; r++)
+            for (int c = 0; c < strip->w && 0x2c + c < SCREEN_W; c++) {
+                uint8_t px = strip->pixels[r * strip->w + c];
+                if (px) page[(200 - hills->h + 0xc + r) * SCREEN_W + 0x2c + c] = px;
+            }
 }
 
 static void copy_rect(int w, int h, int sx, int sy, int dx, int dy)    /* a0ae */
@@ -639,6 +646,16 @@ static void backdrop(const RoadView *rv)
     for (int y = top; y <= CLIP_Y1; y++) hline(CLIP_X0, CLIP_X1, y);
 }
 
+/* 3e66 in town (DS:b7ae 0): the city and the hills don't scroll, the street (colour 1) from row 0x3f. */
+static void backdrop_town(void)
+{
+    copy_rect(0x140, 0x1d, 0, 0x66, 0, 0x12);
+    copy_rect(0x140, 0x10, 0, 0xa3, 0, 0x2f);
+    horizon_slice = 14;
+    colour = 1;
+    for (int y = 0x3f; y <= CLIP_Y1; y++) hline(CLIP_X0, CLIP_X1, y);
+}
+
 /* 1dcb:3cca: Mulholland's backdrop is one picture, lifted and lowered with the road ahead. */
 static void backdrop_mulholland(const RoadView *rv)
 {
@@ -680,19 +697,42 @@ static int slope(int xn, int yn, int xf, int yf) { return yf == yn ? 0 : (int16_
 static void road_strip(const RoadView *rv, int i)
 {
     int seg = rv->seg, mul = rv->race == RACE_MULHOLLAND;
-    int f = F(seg + i);
-    if (f & 1) return;                                 /* town streets: not used by the races */
+    int f = F(seg + i), town = f & 1;
+    if (town && (f & 4)) return;                       /* a crossing: the street colour of 3e66 */
     int l = xl[i], r = xr[i], y = gy[i], yn = gy[i - 1];
     int l16 = l << 4, r16 = r << 4;
     int dl = slope(xl[i - 1], yn, l, y), dr = slope(xr[i - 1], yn, r, y);
     int sl = xsl[i], sr = xsr[i], sl16 = sl << 4, sr16 = sr << 4, dsl = 0, dsr = 0;
-    if (mul) { dsl = slope(xsl[i - 1], yn, sl, y); dsr = slope(xsr[i - 1], yn, sr, y); }
+    if (mul || town) { dsl = slope(xsl[i - 1], yn, sl, y); dsr = slope(xsr[i - 1], yn, sr, y); }
     int w = (int16_t)exe_ds_u16((uint16_t)(0x7e52 + 2 * i)), cl = 0;   /* centre line width */
+    int plain_l = L(seg + i) & 0x80, plain_r = R(seg + i) & 0x80, rows = yn - y;
     if (f & 8) cl = ((r + l) >> 1) - (w >> 1);
     int bridge = mul && i > 9 && bridge_ahead(rv), back = 16 - i;
     int spread = bridge ? (int16_t)exe_ds_u16((uint16_t)(0x7e22 + 4 * back)) : 0;
     if (yn - y < 0) return;
     for (int n = yn - y; n != 0 && y < 0x66; y++, n--) {
+        if (town) {                                    /* the sidewalks, grass on the plain ones */
+            /* A dark line where n equals a local the original never sets ([bp-0x22]); taken as
+             * the strip's first row: the joints between the near slabs. */
+            int joint = n == rows && i < 6;
+            colour = 4;
+            if (!plain_l) hline(sl, l, y);
+            else {
+                int m = ((l - sl) >> 1) + sl;
+                hline(sl, m, y);
+                colour = 9; hline(m, l, y);
+            }
+            if (joint) { colour = 2; hline(sl, l, y); }
+            colour = 4;
+            if (!plain_r) hline(r, sr, y);
+            else {
+                int m = sr - ((sr - r) >> 1);
+                hline(m, sr, y);
+                colour = 9; hline(r, m, y);
+            }
+            if (joint) { colour = 2; hline(r, sr, y); }
+            goto centre;
+        }
         if (mul && !(f & 0x80) && HT(seg) - 0xb <= HT(seg)) {
             colour = 2;                                /* gravel shoulders */
             hline(sl, l, y);
@@ -708,18 +748,21 @@ static void road_strip(const RoadView *rv, int i)
         }
         colour = (f & 0x10) && (!mul || seg >= 0x3ad) ? 15 : 1;     /* finish lines are white */
         hline(l, r, y);
+    centre:
         if (f & 8) {
             colour = 4;
             if (l < 0x13f) hline(cl, cl + w, y);
         }
         l16 += dl; l = l16 >> 4;
         r16 += dr; r = r16 >> 4;
-        if (mul) { sl16 += dsl; sl = sl16 >> 4; sr16 += dsr; sr = sr16 >> 4; }
+        if (mul || town) { sl16 += dsl; sl = sl16 >> 4; sr16 += dsr; sr = sr16 >> 4; }
         cl = ((r + l) >> 1) - (w >> 1);
     }
 }
 
 static int dash_w(int i) { return (int16_t)exe_ds_u16((uint16_t)(0x7e52 + 2 * i)); }   /* *DS:96ee */
+
+static void sign(int x, int y, int slice, int side, int pic);
 
 /* 1dcb:55ce: a gantry across the road, its sign by the flag bits 0xf000. */
 static void gantry_at(int l, int r, int w, int top, int ground, int size, unsigned bits, int f)
@@ -732,8 +775,9 @@ static void gantry_at(int l, int r, int w, int top, int ground, int size, unsign
     }
     int mid = (r + l) >> 1;
     if (bits & 0x1000) object(mid, top, size, 1, 0xd, 0);
-    else if (bits & 0x2000) { /* a picture sign from the street sheet (52e2): town only */ }
+    else if (bits & 0x2000) sign(mid, top, size, 0, 1);
     else if (!(f & 1)) object(mid, top, size, 1, bits & 0x4000 ? 0xc : 0xe, 0);
+    else sign(mid, top, size, 0, bits & 0x4000 ? 2 : 3);                    /* town: the billboards */
 }
 static void gantry(int i, int top, int ground, unsigned bits, int f) { gantry_at(xl[i], xr[i], dash_w(i), top, ground, i, bits, f); }
 
@@ -873,11 +917,83 @@ static void mull_rails(const RoadView *rv, int i, int f, int rf)
 static void aq_draw(const RoadView *rv);
 static void mirror_draw(const RoadView *rv);
 static Game *G_;
+static int town_sign;                                  /* RoadView.sign */
+
+/* ------------------------------------------------------------------ the town (DS:add6 0) */
+
+/* 1dcb:52e2: a picture from one of the sign sheets (7 sizes side by side, DS:7f02: x, w, h), by
+ * the slice's size; side 1 ends at x, -1 starts there, 0 is centred (and only half lifted). Sheet
+ * 1 is the destination's (or a race's 2047), 2 / 3 the billboards 2049 / 2050 (1dcb:37ce). */
+static void sign(int x, int y, int slice, int side, int pic)
+{
+    int k = SDL_clamp(9 - slice, 0, 6);
+    int sx = ds_w(0x7f02 + 6 * k), w = ds_w(0x7f04 + 6 * k), h = ds_w(0x7f06 + 6 * k);
+    const Image *im = game_picture(G_, pic == 1 ? (town_sign ? town_sign : 0x7ff) : pic == 2 ? 0x801 : 0x802);
+    if (!im) return;
+    if (side == 1) x -= w;
+    else if (side == 0) x -= w >> 1;
+    y -= h / (side == 0 ? 2 : 1);
+    for (int r = 0; r < h; r++)                        /* 35c4: clipped to the windshield */
+        for (int c = 0; c < w; c++) {
+            int tx = x + c, ty = y + r, u = sx + c;
+            if (tx < CLIP_X0 || tx > CLIP_X1 || ty < CLIP_Y0 || ty > CLIP_Y1 || u >= im->w || r >= im->h) continue;
+            V->fb[ty * SCREEN_W + tx] = im->pixels[r * im->w + u];
+        }
+}
+
+/* 1dcb:51aa: the corner of a crossing (shape kind 2, up to 8 sizes). */
+static void corner(int x, int y, int slice, int side) { draw_shape(x, y, SDL_clamp(9 - slice, 0, 7), 2, side); }
+
+static int fill4(const int *pt, uint8_t fill, uint8_t edge, int *out);
+static void quad(int c, int x1, int x2, int y1, int y2, int y3, int y4)    /* 1dcb:4294 */
+{
+    int pt[8] = { x1, y1, x2, y2, x2, y3, x1, y4 }, out[48];
+    fill4(pt, (uint8_t)c, (uint8_t)c, out);
+}
+
+/* 1dcb:4c1c (from 504a / 507a, in town only): the fronts of the buildings along one side of a
+ * slice, up to eye height (colour 3, or 2 for flag 0x10); flag 4 adds an upper storey (colour 4)
+ * half as high again, or as high with flag 8. Before a crossing the end wall shows. `u` / `near`
+ * are the side's flags here and one nearer, `f` / `fnear` the road's. The mirror's 4e70 is the
+ * same but for the upper storey: half on the left, full on the right, whatever flag 8 says. */
+static void walls(const int *xs, const int *ys, const int *y19s, int i, int left, unsigned u, unsigned near,
+                  unsigned f, unsigned fnear, int mirror)
+{
+    if (f & 4) return;
+    int p1, p2, p3, p4, p5, p6;
+    if (left) { p1 = xs[i - 1]; p2 = xs[i]; p3 = ys[i - 1]; p4 = ys[i]; p5 = y19s[i]; p6 = y19s[i - 1]; }
+    else { p1 = xs[i]; p2 = xs[i - 1]; p3 = ys[i]; p4 = ys[i - 1]; p5 = y19s[i - 1]; p6 = y19s[i]; }
+    int full = mirror ? !left : (u & 8) != 0;
+    quad(u & 0x10 ? 2 : 3, p1, p2, p3, p4, p5, p6);
+    if (u & 4) {
+        int k = full ? 1 : 2;
+        quad(4, p1, p2, p6, p5, (p5 - p4) / k + p5, (p6 - p3) / k + p6);
+    }
+    if (fnear & 4) {
+        colour = 4;
+        if (left) hline(CLIP_X0, p1, p3 - 1);
+        else hline(p2, CLIP_X1, p4 - 1);
+        colour = 2;
+        if (left) for (int y = p6; y < p3 - 1; y++) hline(CLIP_X0, p1, y);
+        else for (int y = p5; y < p4 - 1; y++) hline(p2, CLIP_X1, y);
+    }
+    if ((u & 4) && !(near & 4)) {                      /* the upper storey's near end */
+        colour = 2;
+        if (left) {
+            int y0 = full ? p6 * 2 - p3 : p6 - ((p3 - p6) >> 1);
+            for (int y = y0; y < p6; y++) hline(p1 * 2 - p2, p1 - 1, y);
+        } else {
+            int y0 = full ? p5 * 2 - p4 : p5 - ((p4 - p5) >> 1);
+            for (int y = y0; y < p5; y++) hline(p2 + 1, p2 * 2 - p1, y);
+        }
+    }
+}
 
 void road_draw(Game *g, const RoadView *rv)
 {
     V = &g->video;
     G_ = g;
+    town_sign = rv->sign;
     clip_view();
     load_shapes(g);
     if (rv->race == RACE_AQUEDUCT) { aq_draw(rv); return; }
@@ -886,7 +1002,9 @@ void road_draw(Game *g, const RoadView *rv)
     int seg = rv->seg, mul = rv->race == RACE_MULHOLLAND;
     for (int k = 14; k > 0; k--)
         if ((R(seg + k) & 0x8000) && !(R(seg + k - 1) & 0x8000)) { rail_start = seg + k; break; }
+    int is_town = rv->race == RACE_TOWN;
     if (mul) backdrop_mulholland(rv);
+    else if (is_town) backdrop_town();
     else backdrop(rv);
     int bridge = bridge_ahead(rv);
     g_road_hits.object = g_road_hits.bump = 0;
@@ -895,7 +1013,13 @@ void road_draw(Game *g, const RoadView *rv)
             hillside(rv, i, -1, bridge);
             hillside(rv, i, 1, bridge);
         }
-        if (i <= horizon_slice) road_strip(rv, i);
+        if (i <= horizon_slice) {                      /* 1dcb:50a8 */
+            if (is_town) {
+                walls(xsl, gy, y19, i, 1, L(seg + i), L(seg + i - 1), F(seg + i), F(seg + i - 1), 0);
+                walls(xsr, gy, y19, i, 0, R(seg + i), R(seg + i - 1), F(seg + i), F(seg + i - 1), 0);
+            }
+            road_strip(rv, i);
+        }
         int lf = L(seg + i), rf = R(seg + i), f = F(seg + i);
         int town = f & 1;
         if (!(f & 4) || !town) {
@@ -903,39 +1027,47 @@ void road_draw(Game *g, const RoadView *rv)
                 int width = xr[i] - xl[i], y = gy[i];
                 int flat_l = tly[i - 1] == gy[i - 1], flat_r = try_[i - 1] == gy[i - 1];
                 if (!mul && (lf & 0x20)) object(xl[i], y, i, -1, 0, 0);
-                if ((lf & 0x100) && !(mul && !flat_l)) {
+                if ((lf & 0x100) && town) object(xl[i], y, i, -1, 4, 1);
+                else if ((lf & 0x100) && !(mul && !flat_l)) {
                     if (!(lf & 0x200)) object(xsl[i], y, i, -1, mul ? 0x15 : 4, 1);
                     else object(xsl[i] * 2 - xl[i], y, i + 2, -1, mul ? 0x15 : 4, 1);
                 }
                 if (mul && (lf & 0x800)) object(xl[i], y, i, 1, 3, 0);
                 if (mul && (lf & 0x1000)) object(xl[i], y, i, 1, 6, 0);
-                if ((lf & 1) && flat_l) object(xl[i], y, i, -1, 1, 1);             /* lamp posts */
+                if ((lf & 1) && town) sign(xl[i], (y + y19[i]) >> 1, i, 1, 1);    /* the destination */
+                else if ((lf & 1) && flat_l) object(xl[i], y, i, -1, 1, 1);        /* lamp posts */
                 if (mul && (lf & 0x10)) rocks(xl[i], y, i, 1);
                 if (!mul || flat_l) {
                     if (lf & 0x40) object(xsl[i], y, i, -1, 10, 0);
                     if (lf & 0x80) {
-                        if (lf & 2) object((xfl[i] + CLIP_X0) >> 1, y, i + 3, -1, mul ? 0x16 : 0xb, 0);
+                        if ((lf & 2) && !town) object((xfl[i] + CLIP_X0) >> 1, y, i + 3, -1, mul ? 0x16 : 0xb, 0);
                         else object(xsl[i], y, i, -1, mul ? 0x16 : 0xb, 0);
                     }
                 }
                 if (!mul || flat_r) {
                     if (rf & 0x40) object(xsr[i], y, i, 1, 10, 0);
                     if (rf & 0x80) {
-                        if (rf & 2) object((xfr[i] + CLIP_X1) >> 1, y, i + 3, 1, mul ? 0x16 : 0xb, 0);
+                        if ((rf & 2) && !town) object((xfr[i] + CLIP_X1) >> 1, y, i + 3, 1, mul ? 0x16 : 0xb, 0);
                         else object(xsr[i] + ((xsr[i] - xr[i]) >> 1), y, i, 1, mul ? 0x16 : 0xb, 0);
                     }
                 }
-                if (!mul || flat_l) {
-                    if (lf & 4) object(xl[i] - 2, y, i, -1, 7, 1);
-                    if (lf & 8) object(xl[i] - 2, y, i, -1, 8, 1);
+                if (town) {                                     /* crossings' corners */
+                    if (lf & 0x40) corner(xl[i], y, i, 1);
+                    if (rf & 0x40) corner(xr[i], y, i, -1);
+                } else {
+                    if (!mul || flat_l) {
+                        if (lf & 4) object(xl[i] - 2, y, i, -1, 7, 1);
+                        if (lf & 8) object(xl[i] - 2, y, i, -1, 8, 1);
+                    }
+                    if (!mul || flat_r) {
+                        if (rf & 4) object(xr[i] + 2, y, i, 1, 7, 1);
+                        if (rf & 8) object(xr[i] + 2, y, i, 1, 8, 1);
+                    }
                 }
-                if (!mul || flat_r) {
-                    if (rf & 4) object(xr[i] + 2, y, i, 1, 7, 1);
-                    if (rf & 8) object(xr[i] + 2, y, i, 1, 8, 1);
-                }
-                if ((f & 2) && (!mul || flat_r)) object(xsr[i] - (width >> 3), y, i, 1, 9, 0);
+                if ((f & 2) && !town && (!mul || flat_r)) object(xsr[i] - (width >> 3), y, i, 1, 9, 0);
                 if (!mul && (rf & 0x20)) object(xr[i], y, i, 1, 0, 0);
-                if ((rf & 0x100) && !(mul && !flat_r)) {
+                if ((rf & 0x100) && town) object(xr[i], y, i, 1, 4, 1);
+                else if ((rf & 0x100) && !(mul && !flat_r)) {
                     if (!(rf & 0x200)) object(xsr[i], y, i, 1, mul ? 0x15 : 4, 1);
                     else object(xsr[i] * 2 - xr[i], y, i + 2, 1, mul ? 0x15 : 4, 1);
                 }
@@ -943,7 +1075,8 @@ void road_draw(Game *g, const RoadView *rv)
                 if (rf & 0x4000) object(xr[i], y, i, 1, 0x13, 0);
                 if (rf & 0x800) object(xr[i], y, i, 1, 3, 0);
                 if (rf & 0x1000) object(xr[i], y, i, -1, 6, 0);
-                if ((rf & 1) && flat_r) object(xr[i], y, i, -1, 1, 1);
+                if ((rf & 1) && town) sign(xr[i], (y + y19[i]) >> 1, i, -1, 1);
+                else if ((rf & 1) && flat_r) object(xr[i], y, i, -1, 1, 1);
                 if (mul && (rf & 0x10)) rocks(xr[i], y, i, -1);
                 for (int big = 1; big >= 0; big--) {            /* things lying on the road */
                     if (!mul || !(f & (big ? 4 : 0x1000))) continue;
@@ -1708,12 +1841,23 @@ static void mirror_strip(const RoadView *rv, int k, int f)   /* 1dcb:4852 */
     int l = mxl[k], r = mxr[k], y = mgy[k], yn = mgy[k - 1];
     int l16 = l << 4, r16 = r << 4, dl = slope(mxl[k - 1], yn, l, y), dr = slope(mxr[k - 1], yn, r, y);
     int sl = mxsl[k], sr = mxsr[k], sl16 = sl << 4, sr16 = sr << 4, dsl = 0, dsr = 0;
-    if (mul) { dsl = slope(mxsl[k - 1], yn, sl, y); dsr = slope(mxsr[k - 1], yn, sr, y); }
+    int town = f & 1, s = seg - 1 - k;
+    if (town && (f & 4)) return;
+    if (mul || town) { dsl = slope(mxsl[k - 1], yn, sl, y); dsr = slope(mxsr[k - 1], yn, sr, y); }
     int w = 0, cl = 0;
     if (f & 8) { w = dash_w(13 + k); cl = ((r + l) >> 1) - (w >> 1); }
     if (yn - y < 0) return;
     int white = (f & 0x10) && seg >= (mul ? 0x3ad : 0x169);
     for (int n = yn - y; n != 0 && y < 0x2b; y++, n--) {
+        if (town) {                                    /* sidewalks; no slab joints in the mirror */
+            colour = 4;
+            if (!(L(s) & 0x80)) hline(sl, l, y);
+            else { int m = ((l - sl) >> 1) + sl; hline(sl, m, y); colour = 9; hline(m, l, y); }
+            colour = 4;
+            if (!(R(s) & 0x80)) hline(r, sr, y);
+            else { int m = sr - ((sr - r) >> 1); hline(m, sr, y); colour = 9; hline(r, m, y); }
+            goto centre;
+        }
         if (mul && !(f & 0x80)) {                      /* HT(pos) - 0xb <= a56c always holds */
             colour = 2;
             hline(sl - 6, l, y);
@@ -1727,10 +1871,11 @@ static void mirror_strip(const RoadView *rv, int k, int f)   /* 1dcb:4852 */
         }
         colour = white ? 15 : 1;
         hline(l, r, y);
+    centre:
         if (f & 8) { colour = 4; hline(cl, cl + w, y); }
         l16 += dl; l = l16 >> 4;
         r16 += dr; r = r16 >> 4;
-        if (mul) { sl16 += dsl; sl = sl16 >> 4; sr16 += dsr; sr = sr16 >> 4; }
+        if (mul || town) { sl16 += dsl; sl = sl16 >> 4; sr16 += dsr; sr = sr16 >> 4; }
         cl = ((r + l) >> 1) - (w >> 1);
     }
 }
@@ -1765,7 +1910,12 @@ static void mirror_draw(const RoadView *rv)
     for (int k = 7; k > 0; k--) {
         int s = seg - 1 - k;
         unsigned f = F(s), lf = L(s), rf = R(s);
+        int town = f & 1;
         if (mul && !(f & 0x80)) { mirror_hill(rv, k, -1); mirror_hill(rv, k, 1); }
+        if (town) {                                                        /* 5122: 50c4 / 50f4 */
+            walls(mxsl, mgy, my19, k, 1, lf, L(s + 1), f, F(s + 1), 1);
+            walls(mxsr, mgy, my19, k, 0, rf, R(s + 1), f, F(s + 1), 1);
+        }
         mirror_strip(rv, k, (int)f);
         if (!(f & 4) || !(f & 1)) {
             if ((f & 0xf000) && drag)
@@ -1774,7 +1924,8 @@ static void mirror_draw(const RoadView *rv)
                 int ic = (k >> 1) + 7, width = mxr[k] - mxl[k], y = mgy[k];
                 int flat_l = mgy[k - 1] == mtly[k - 1], flat_r = mgy[k - 1] == mtry[k - 1];
                 if (!mul && (lf & 0x20)) object(mxl[k], y, ic, -1, 0, 0);
-                if ((lf & 0x100) && !(mul && !flat_l))
+                if ((lf & 0x100) && town) object(mxl[k], y, ic, -1, 4, 1);
+                else if ((lf & 0x100) && !(mul && !flat_l))
                     object(lf & 0x200 ? mxsl[k] * 2 - mxl[k] : mxsl[k], y, ic, -1, mul ? 0x15 : 4, 1);
                 if (mul && (lf & 0x800)) object(mxl[k], y, ic, -1, 3, 0);
                 if (mul && (lf & 0x1000)) object(mxl[k], y, ic, 1, 6, 0);
@@ -1782,25 +1933,31 @@ static void mirror_draw(const RoadView *rv)
                 if ((rf & 1) && flat_r) object(mxr[k], y, ic, -1, 1, 1);
                 if (drag || flat_l) {
                     if (lf & 0x40) object(mxsl[k], y, ic, -1, 10, 0);
-                    if (lf & 0x80) object(lf & 2 ? (mxsl[k] + CLIP_X0) >> 1 : mxsl[k], y, ic, -1, mul ? 0x16 : 0xb, 0);
+                    if (lf & 0x80) object((lf & 2) && !town ? (mxsl[k] + CLIP_X0) >> 1 : mxsl[k], y, ic, -1, mul ? 0x16 : 0xb, 0);
                 }
                 if (drag || flat_r) {
                     if (rf & 0x40) object(mxsr[k], y, ic, 1, 10, 0);
-                    if (rf & 0x80) object(rf & 2 ? (mxfr[k] + CLIP_X1) >> 1 : mxsr[k], y, ic, 1, mul ? 0x16 : 0xb, 0);
+                    if (rf & 0x80) object((rf & 2) && !town ? (mxfr[k] + CLIP_X1) >> 1 : mxsr[k], y, ic, 1, mul ? 0x16 : 0xb, 0);
                 }
                 if (mul && (lf & 0x10)) rocks(mxl[k], y, ic, 1);
                 if (mul && (rf & 0x10)) rocks(mxr[k], y, ic, -1);
-                if (drag || flat_l) {
-                    if (lf & 4) object(mxl[k], y, ic, -1, 7, 1);
-                    if (lf & 8) object(mxl[k], y, ic, -1, 8, 1);
+                if (town) {                                                /* 51aa */
+                    if (lf & 0x40) corner(mxl[k], y, ic, -1);
+                    if (rf & 0x40) corner(mxr[k], y, ic, 1);
+                } else {
+                    if (drag || flat_l) {
+                        if (lf & 4) object(mxl[k], y, ic, -1, 7, 1);
+                        if (lf & 8) object(mxl[k], y, ic, -1, 8, 1);
+                    }
+                    if (drag || flat_r) {
+                        if (rf & 4) object(mxr[k], y, ic, 1, 7, 1);
+                        if (rf & 8) object(mxr[k], y, ic, 1, 8, 1);
+                    }
                 }
-                if (drag || flat_r) {
-                    if (rf & 4) object(mxr[k], y, ic, 1, 7, 1);
-                    if (rf & 8) object(mxr[k], y, ic, 1, 8, 1);
-                }
-                if ((f & 2) && (drag || flat_r)) object(mxsr[k] - (width >> 3), y, ic, 1, 9, 0);
+                if ((f & 2) && !town && (drag || flat_r)) object(mxsr[k] - (width >> 3), y, ic, 1, 9, 0);
                 if (!mul && (rf & 0x20)) object(mxr[k], y, ic, 1, 0, 0);
-                if ((rf & 0x100) && !(mul && !flat_r))
+                if ((rf & 0x100) && town) object(mxr[k], y, ic, 1, 4, 1);
+                else if ((rf & 0x100) && !(mul && !flat_r))
                     object(rf & 0x200 ? mxsr[k] * 2 - mxr[k] : mxsr[k], y, ic, 1, mul ? 0x15 : 4, 1);
                 if (rf & 0x2000) object(mxr[k], y, ic, 1, 0x12, 0);
                 if (rf & 0x4000) object(mxr[k], y, ic, 1, 0x13, 0);

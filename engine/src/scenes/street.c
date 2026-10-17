@@ -258,7 +258,7 @@ static void choose(Game *g, int i)
 {
     if (i < 0) return;
     int id = dlg.w[i].id;
-    if (id == 1) { drive_motor_stop(); game_set_scene(g, &scene_garage); return; }   /* Back to the garage */
+    if (id == 1) { drive_motor_stop(); town_drive(g, 1, &scene_garage); return; }   /* Back to the garage (1bc8 = 1, 8c68) */
     if (state == S_ARRIVING || state == S_LEAVING) return;
     if (id == 4) open_looking(g);
     else if (id == 3 && rival >= 0) {

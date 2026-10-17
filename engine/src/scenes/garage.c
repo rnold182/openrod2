@@ -8,6 +8,7 @@
 #include "../ui/partlist.h"
 #include "deals.h"
 #include "files.h"
+#include "race.h"
 
 /* Hotspot ids from dialog 0. */
 enum {
@@ -139,7 +140,7 @@ static void choose(Game *g, int i)
         if (!car_runnable(car, 1)) { game_message(g, 39); break; }        /* "Your car's not running, speedy!" */
         if (car->fuel <= 8) { game_message(g, 36); break; }               /* "...not enough gas to cruise down to Burger's." */
         g->player.time_actions += 0x222;
-        game_set_scene(g, &scene_street);
+        town_drive(g, 2, &scene_street);                                  /* 1bc8 = 2, 8c68, then a626 */
         break;
     }
     case G_HOOD:

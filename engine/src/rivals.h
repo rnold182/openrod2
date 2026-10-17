@@ -10,7 +10,7 @@
 
 #define KING 21
 
-enum { RACE_DRAG = 1, RACE_AQUEDUCT = 8, RACE_MULHOLLAND = 0x10 };   /* DS:add6 */
+enum { RACE_TOWN = 0, RACE_DRAG = 1, RACE_AQUEDUCT = 8, RACE_MULHOLLAND = 0x10 };   /* DS:add6 (0: driving through town) */
 
 int  rival_get(const Player *p, int r, int off);           /* signed byte */
 void rival_set(Player *p, int r, int off, int v);

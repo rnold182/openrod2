@@ -39,7 +39,7 @@ typedef struct {
     int seg, sub;           /* DS:a55e, a560 (1/64 segment) */
     int x, h;               /* a564 lateral position, a566 eye height */
     int heading;            /* a56a */
-    int race;               /* DS:add6: RACE_DRAG, RACE_MULHOLLAND, RACE_AQUEDUCT */
+    int race;               /* DS:add6: RACE_TOWN, RACE_DRAG, RACE_MULHOLLAND, RACE_AQUEDUCT */
     int opp_seg;            /* a9c6: the opponent is drawn when the painter reaches its segment */
     int fall;               /* DS:7b9c: going over the edge, -1 left / 1 right */
     void (*draw_opponent)(void);
@@ -49,6 +49,7 @@ typedef struct {
     void (*draw_opponent_mirror)(void);   /* af98 for kinds 9..12, drawn with road_mproj_* */
     int starter_gone;       /* DS:a7ac clear: the starter has left the window and shows in the mirror */
     int starter_seg;        /* DS:9e6a: where she stands */
+    int sign;               /* town: the destination's sign sheet (DS:7e1a[1bc8], 2032..2034) */
 } RoadView;
 
 /* What the last frame found in front of the car (DS:bb88 / add4: -1 left, 1 right, 0 none). */

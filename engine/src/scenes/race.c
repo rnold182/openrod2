@@ -163,6 +163,13 @@ static int starter_seg;                 /* DS:9e6a: where the starter stands (0d
 
 void race_autodrive(int on) { autodrive = on; }
 
+static int town_dest;                   /* DS:1bc8 */
+static const Scene *town_then;
+static int town_accel;                  /* DS:9124: rpm added a frame, DS:501a[gear] */
+static int town_left, town_right;       /* DS:7ba0 / 7b9e: turning in */
+static int town_skip;                   /* DS:3bf6: a click (or Esc) ends the drive */
+static char result_line1[64], result_line2[64];
+
 #define RES_WON     0x100
 #define RES_LOST    0x001
 #define RES_ENGINE  0x005
@@ -804,7 +811,7 @@ static void race_frame(void)
         unsigned f = AQ_(pos + 2);
         if (!aq_skip) aq_skip = 1;
         else if (sub + dist > 0x38 && (f & 0x90)) {                    /* don't jump past a block or a pillar */
-            RoadView v = { pos, 0x38, cam_x, CAM_H, heading, race, opp_pos, 0, NULL, me.speed, autodrive == 1, NULL, 0, 0 };
+            RoadView v = { pos, 0x38, cam_x, CAM_H, heading, race, opp_pos, 0, NULL, me.speed, autodrive == 1, NULL, 0, 0, 0 };
             if (road_aq_ahead(&v, f)) { sub = 0x38; dist = 0; aq_skip = 0; }
         }
     }
@@ -1034,9 +1041,12 @@ void race_start(Game *g, int r, int race_type, int stake_, int amount)
     game_set_scene(g, &scene_race);
 }
 
+static void town_enter(Game *g);
+
 static void enter(Game *g)
 {
     G = g;
+    if (race == RACE_TOWN) { town_enter(g); return; }
     you = player_car(&g->player);
     engine_setup(&me, you);
     road_build(&g->player);
@@ -1108,6 +1118,102 @@ static void enter(Game *g)
     engine_sound(1);
 }
 
+/* ------------------------------------------------------------------ the drive through town */
+
+void town_drive(Game *g, int dest, const Scene *then)
+{
+    Car *c = player_car(&g->player);
+    if (c) c->fuel = (int16_t)(c->fuel < 3 ? 0 : c->fuel - 2);       /* 1001:8c68 */
+    G = g;
+    race = RACE_TOWN;                                                  /* add6 0, b7ae 0 */
+    town_dest = dest;
+    town_then = then;
+    game_set_scene(g, &scene_race);
+}
+
+static void town_enter(Game *g)
+{
+    you = player_car(&g->player);
+    engine_setup(&me, you);
+    road_build(&g->player);
+    me.rpm = 0x5dc;                                                    /* bc88: a10e */
+    me.speed = me.gear = 0;
+    pos = town_dest == 1 ? 10 : town_dest == 3 ? 0x73 : 0x41;          /* 1dcb:0736 */
+    sub = 0;
+    opp_pos = -100;                                                    /* nobody else on the road */
+    cam_x = cam_prev = CAM_X;
+    heading = steer = wheel = steer_in = 0;
+    fall = tire_flat = fell_steps = 0;
+    aq_side = aq_roll = aq_skip = aq_have = 0;
+    police = fined = ticket_open = ticket_paid = 0;
+    repair_open = go_home = king_beaten = 0;
+    result = finished = 0;
+    town_left = town_right = town_skip = 0;
+    result_line1[0] = 0;
+    if (you && you->tires.part >= 0)
+        grip = ds16((uint16_t)(0x521e + 2 * (g_parts[you->tires.part].grade * 5 + you->tires.wear / 2000)));
+    else grip = 14;
+    frame_no = 0;
+    frame_acc = engine_acc = 0;
+    gas = brake = shift_pressed = shift_latch = 0;
+    starter_slide = 0x60;                                              /* no starter in town (a5aa) */
+    state = R_STAGE;                                                   /* 8d9e: 3d80(0xf), then 3d80(0x19) */
+    phase_start = last_frame = SDL_GetTicks();
+    wait_ticks = 0xf;
+    ready_text[0] = 0;
+    game_message_clear(g);
+    game_set_palette(g, PAL_INCAR);
+    sound_music_duck(opt_tune_music_duck);
+}
+
+static void town_end(void)
+{
+    engine_sound(0);                                                   /* 1001:2176 */
+    sound_music_duck(0);
+    state = R_DONE;
+    game_set_scene(G, town_then ? town_then : &scene_garage);
+}
+
+/* One frame: 8ef4's town branch, then 1dcb:1774 with b7ae 0. */
+static void town_frame(void)
+{
+    if (state == R_STAGE) {
+        if (game_ticks_since(phase_start) < wait_ticks) return;
+        if (wait_ticks == 0xf) {                                       /* the second wait: a click skips the drive */
+            town_skip = 0;
+            phase_start = SDL_GetTicks();
+            wait_ticks = 0x19;
+            return;
+        }
+        if (town_skip) { town_end(); return; }                         /* 2a21:9b0e instead of 77f4 */
+        state = R_GO;                                                  /* 8ef4 state 0 */
+        engine_sound(1);                                               /* 1001:20a0 */
+        SDL_strlcpy(ready_text, exe_ds_str(0x5006), sizeof ready_text);    /* "Cruising in town..." */
+        me.gear = 1;
+        town_accel = ds16(0x501a);
+        return;
+    }
+    if (state != R_GO) return;
+    if ((L_(pos + 1) & 1) || (R_(pos + 1) & 1) || town_skip) { town_end(); return; }   /* there (8c2c, 3bf6) */
+    me.rpm += town_accel;
+    if (me.rpm > 0x125c) me.rpm = 0x125c;
+    if (me.gear) me.speed = me.rpm / ds16((uint16_t)(0x5024 + 2 * me.gear));
+    if (me.rpm >= 0x1195) {                                            /* up a gear (a11c gears) */
+        if (me.gear < me.gears) {
+            me.gear++;
+            town_accel = ds16((uint16_t)(0x501a + 2 * me.gear));
+            me.rpm = ds16((uint16_t)(0x5024 + 2 * me.gear)) * me.speed;
+        } else town_accel = 0;
+    }
+    /* 1774: 0x30 / 64 of a segment a frame; the car drifts by how far it's turned off the road. */
+    int dist = 0x30;
+    if (me.speed) cam_x -= ((dist >> 3) + grip) * (heading - HD_(pos)) >> 2;
+    sub += dist;
+    if (sub > 0x3f) { pos += sub >> 6; sub &= 0x3f; }                   /* 12ca */
+    if ((L_(pos + 7) & 1) || town_left) { town_left = 1; heading += 3; }    /* 1758(1): turning in left */
+    if ((R_(pos + 6) & 1) || town_right) { heading -= 3; town_right = 1; }  /* 1758(-1): right */
+}
+
 static void leave_race(void)
 {
     engine_sound(0);
@@ -1142,6 +1248,7 @@ static void mouse_move(Game *g, int x, int y) { (void)g; if (repair_open) dialog
 static void key(Game *g, SDL_Scancode sc, SDL_Keycode k)
 {
     (void)g;
+    if (race == RACE_TOWN) { if (k == SDLK_ESCAPE) town_skip = 1; return; }   /* 8c2c: Esc (0x1b) */
     if (state == R_CRASH) return;
     if (repair_open) { repair_choice(dialog_key(&repair, sc)); return; }
     if (ticket_open && !ticket_paid) return;
@@ -1152,6 +1259,7 @@ static void key(Game *g, SDL_Scancode sc, SDL_Keycode k)
 static void click(Game *g, int x, int y)
 {
     (void)g;
+    if (race == RACE_TOWN) { town_skip = 1; return; }
     if (state == R_CRASH) return;
     if (repair_open) { repair_choice(dialog_click(&repair, x, y)); return; }
     if (ticket_open && !ticket_paid) return;
@@ -1186,6 +1294,7 @@ static void frame(void)
     if (SDL_getenv("SR2_DEBUG") && frame_no % 18 == 0)
         SDL_Log("race f%d st%d you pos %d spd %d rpm %d g%d band %d acc %d x %d hd %d/%d st %d | opp pos %d spd %d rpm %d g%d lim %d x %d k %d res %x",
                 frame_no, state, pos, me.speed, me.rpm, me.gear, me.band, me.accel, cam_x, heading, HD_(pos), steer, opp_pos, opp.speed, opp.rpm, opp.gear, opp_limit, opp_x, opp_kind, result);
+    if (race == RACE_TOWN) { town_frame(); return; }
     read_controls();
     if (state == R_CRASH) {
         if (aq_side && aq_roll < 9) { aq_roll_step(); return; }        /* rolling over the wall first */
@@ -1267,7 +1376,6 @@ static void ticket_step(void)
 
 /* ------------------------------------------------------------------ drawing */
 
-static char result_line1[64], result_line2[64];
 
 static void result_screen(void)        /* 1001:b256: dialog 23 */
 {
@@ -1554,7 +1662,7 @@ static void aq_roll_step(void)
 static void aq_render(void)
 {
     view = (RoadView){ pos, sub, cam_x, CAM_H, heading, race, opp_pos, 0, draw_opponent, me.speed, autodrive == 1,
-                       draw_opponent_mirror, !starter_there(), starter_seg };
+                       draw_opponent_mirror, !starter_there(), starter_seg, 0 };
     road_draw(G, &view);
     memcpy(aq_pix, G->video.fb, sizeof aq_pix);
     aq_have = 1;
@@ -1666,7 +1774,7 @@ static void update(Game *g)
         if (frame_acc < 1.0 && engine_acc < 1.0) break;
         if (engine_acc >= 1.0 && (frame_acc < 1.0 || te <= tf)) {
             engine_acc -= 1.0;
-            if (state == R_STAGE || state == R_READY || state == R_GO || state == R_RACING) engine_step();
+            if (race != RACE_TOWN && (state == R_STAGE || state == R_READY || state == R_GO || state == R_RACING)) engine_step();
         } else {
             frame_acc -= 1.0;
             if (state != R_DONE) frame();
@@ -1691,7 +1799,8 @@ static void update(Game *g)
         if (aq_have) memcpy(v->fb, aq_pix, sizeof aq_pix);
     } else {
         view = (RoadView){ pos, sub, x, eye, heading, race, opp_pos, fall, draw_opponent, me.speed, autodrive == 1,
-                           draw_opponent_mirror, !starter_there(), starter_seg };
+                           draw_opponent_mirror, !starter_there() && race != RACE_TOWN, starter_seg,
+                           race == RACE_TOWN ? ds16((uint16_t)(0x7e1a + 2 * (town_dest == 4 ? 2 : town_dest))) : 0 };
         road_draw(g, &view);
     }
     if (you) game_set_paint(g, my_paint());
@@ -1719,7 +1828,7 @@ static void update(Game *g)
     }
     ticket_step();
     char gear[2] = { 0, 0 };                                           /* d908 -> 2a21:1f5e, DS:1e1e */
-    if (state >= R_GO) gear[0] = me.automatic ? (me.auto_mode == 2 ? 'D' : 'N') : (char)('0' + me.gear);
+    if (state >= R_GO && race != RACE_TOWN) gear[0] = me.automatic ? (me.auto_mode == 2 ? 'D' : 'N') : (char)('0' + me.gear);
     if (ticket_open) {
         draw_ticket();
         char text[64] = "";

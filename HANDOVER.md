@@ -90,19 +90,8 @@ OpenRod 2 is a from-scratch rebuild of **Street Rod 2** (1990, DOS) in plain C +
   the starter is still there disqualifies you (msg 0x78), as in the original.
 
 ## Next steps (in this order)
-1. **The drive between places** (the user asked for it). 1001:8c68 (garage → Burger's 1bc8 = 2, gas
-   station 3, Grudge Night 4): fuel -2, add6 = 0 (town), b7ae = 0 (not a race), bc88 / 0736 (start
-   segment by 1bc8: 1 → 10, 2 / 4 → 0x41, 3 → 0x73), 8d9e → 2a21:77f4 with the race screen and
-   dashboard. Skipped when you click during 8d9e's 3d80(0xf) / 3d80(0x19) waits (DS:3bf6).
-   - 8ef4's drive branch: 20a0 motor, status DS:5006, gear 1; per frame rpm a10e += DS:501a[gear]
-     (max 0x125c), speed = rpm / 5024[gear], next gear at 0x1195 up to a11c; ends (2176) when L or R
-     of segment pos + 1 has bit 1 (build_town marks R(0x2c), L(0x6c), L(0x9c)) or on a click.
-   - 1774 when b7ae == 0: a562 = 0x30 (0x20 on slow PCs) a frame, the autopilot (12ca), 1758(1) once
-     L(pos + 7) & 1, 1758(-1) once R(pos + 6) & 1 (turning in, DS:7ba0 / 7b9e).
-   - Not ported: the town view - 4322's branch for road flag 1, 52e2 picture objects (the buildings,
-     side flags 4 / 8 / 0x10 / 0x80 / 0x100 / 0x8000, gantry pictures 0x2000), 4e70 (sidewalks /
-     crossings, see the mirror's 5aee too), 3e66 for town, 1758, 8c2c, and starting the drive from
-     the garage (rebuild garage.c G_STREET etc.) and arriving (street / garage modes).
+1. **Check the town drive against the original** (done in race.c / road.c, NOTES "The drive through
+   town"); the gas station and Grudge Night will call town_drive(g, 3 / 4, ...).
 2. **The gas station.** Garage "Wanna tank?" hotspot id 15, mode 3, 3925:2104, dialog 22.
 3. **Grudge Night.** Id 17, Wednesdays only (63e0() % 7 == 2), $30, fuel > 23, mode 4, 3925:1970 (race types 2/4 use tables 60be/61a6/6572).
 4. **Street details.** The carhop (2a21:945a, picture 0x458), rival taunts (1001:9432).
