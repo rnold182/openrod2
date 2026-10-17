@@ -1803,6 +1803,10 @@ static void update(Game *g)
                            race == RACE_TOWN ? ds16((uint16_t)(0x7e1a + 2 * (town_dest == 4 ? 2 : town_dest))) : 0 };
         road_draw(g, &view);
     }
+    /* 1dcb:5a2c, after the mirror's frame: its left part (0x20 x 0x15 from (0xf8, 0x16)) is copied
+     * into the dashboard at (8, 0x67) - the side mirror on the door. */
+    static uint8_t side[0x15][0x20];
+    for (int r = 0; r < 0x15; r++) memcpy(side[r], &v->fb[(0x16 + r) * SCREEN_W + 0xf8], 0x20);
     if (you) game_set_paint(g, my_paint());
     /* 1dcb:573e: the top of the steering wheel shows above the dashboard (DS:78e0). */
     game_draw_picture(g, ds16((uint16_t)(0x78e0 + 6 * t)), ds16((uint16_t)(0x78e2 + 6 * t)), ds16((uint16_t)(0x78e4 + 6 * t)));
@@ -1811,6 +1815,7 @@ static void update(Game *g)
     if (you) game_set_paint(g, my_paint());
     game_draw_picture(g, 0x7dd, 0, 0);                                 /* roof and mirror */
     draw_dash();
+    for (int r = 0; r < 0x15; r++) memcpy(&v->fb[(0x67 + r) * SCREEN_W + 8], side[r], 0x20);
     if (aq_side && aq_roll < 9) { }                                    /* still rolling */
     else if (state == R_CRASH || (state == R_DONE && (result == RES_CRASH || result == RES_HIT_OPP || (result & RACE_TIRE)))) {
         /* 1001:af0a: the windshield caves in (2064 in two parts round the roof line), the dash

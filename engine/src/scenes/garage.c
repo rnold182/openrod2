@@ -37,7 +37,7 @@ static void open_modal(int kind, int dialog)
 }
 
 /* 2a21:89fa in the garage (1001:6912): coming back from the street, a race or a loaded game your
- * car drives in from the left to its place (mode 4); switching cars, the old one drives out to the
+ * car drives in from the left to its place (mode 4); switching cars, the old one backs out to the
  * right first (mode 6). From the hood, gearbox or underside it is simply there (mode 3). Wheels turn
  * and the motor runs as at Burger's (street.c). */
 #define DRIVE_SPEED 160.0                       /* pixels per second, as at Burger's */
@@ -85,10 +85,11 @@ static int draw_drive(Game *g)
     int w = body ? body->w : 0, park = car_garage_x(w), x;
     double moved = (SDL_GetTicks() - drive_start) * DRIVE_SPEED / 1000.0;
     if (drive == 4) { x = (int)moved - w; if (x >= park) x = park; drive_motor_update(park - x); }
-    else { x = park + (int)moved; drive_motor_update(x - park); }
+    else { x = park - (int)moved; drive_motor_update(park - x); }     /* backing out: w + x to the left */
     int tires = c->tires.part >= 0 ? g_parts[c->tires.part].grade : -1;
-    car_draw_ex(&g->video, g, c->model, c->body, blower_of(c), tires, ((int)moved / 6) & 3, x, 0x9e);
-    if ((drive == 4 && x >= park) || (drive == 6 && x >= 320)) {
+    int turn = drive == 6 ? -((int)moved / 6) : (int)moved / 6;     /* the wheels turn backwards */
+    car_draw_ex(&g->video, g, c->model, c->body, blower_of(c), tires, turn & 3, x, 0x9e);
+    if ((drive == 4 && x >= park) || (drive == 6 && x <= -w)) {
         drive_motor_stop();
         if (drive == 6) drive_in(g);
         else drive = 0;

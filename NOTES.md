@@ -112,6 +112,9 @@
   kerb, 0x40 -> 51aa (shape kind 2, 8 sizes: crossing corners) instead of 7 / 8, no 2-flag objects;
   gantries (55ce) carry billboard 2 (0x4000) or 3. 52e2: sheet sizes DS:7f02 (x, w, h) by clamp(9 - i,
   0, 6); side 1 ends at x, -1 starts at x, 0 centred and lifted h / 2.
+- The upper storey's near end on slice 1 uses 07e4's first entry, measured from the car, and its
+  span can come out reversed; a0e2 draws reversed spans (4154 relies on it), so the original must
+  avoid it some other way - the rebuild skips the reversed ones (they filled whole rows: grey boxes).
 - The mirror (5aee): 5122 = 50c4 / 50f4 (4e70: 4c1c but the upper storey half on the left and full
   on the right) + 4852 (sidewalks, no joints); corners 51aa sides reversed; side flag 1 stays a lamp.
 
@@ -138,6 +141,8 @@
 - Pumping: every poll the pump's counter DS:9160 +1, shown as six single-pixel lamps (1e08: x 44 / 42 /
   40, y 134 / 139, regular pump + 0x9b; bits 1 4 16 / 2 8 32; colour 4 lit, 5 dark); every 8 polls
   fuel + step and $1 (1df4); stops when full or broke.
+- The car's lowest 25 rows above the cut (DS:1bd0[3]; 2a21:80ec fills a buffer with colour 1 and
+  copies those rows onto it) only cover the black under the car: the pumps' fronts stay in front.
 - 0xa0 idle polls (never reset, about 15 s) bring the attendant (1c10: picture 1150, six 24 x 20
   frames at (0xc0, 0x59), 0x10 ticks each; all hotspots off), 0x45 "Yo, you need full service,
   dummy!". If you had bought gas you leave at once and pay $10 (twice with a nozzle in the tank and
@@ -148,10 +153,10 @@
 
 ## Cars driving in and out (2a21:89fa)
 - Modes: 1 arrive / 2 leave at Burger's (1001:953c), 4 your car drives into the garage from the left,
-  6 a car drives out to the right (the old one when switching cars, 1001:6912 param 3), 3 / 7 / 8
+  6 a car backs out to the left (the old one when switching cars, 1001:6912 param 3; 9d38 moves it w + x), 3 / 7 / 8
   just draw it. The garage (6912) is entered with 1 (after the street, a race, a load: drive in),
   2 (after hood / gearbox / underside: drawn), 0 (no redraw) or 3 (switch: out, then in). Start x
-  -w (in) or the spot (out), distance w + spot (in), 0x140 - spot or w + spot (out).
+  -w (in) or the spot (out), distance w + spot (in), 0x140 - spot (mode 2, forward) or w + spot (mode 6, reversing).
 - The sound (89fa with 7a44(your car, 1)): your car could run: 1001:20a0 starts the motor (3c57:0b2c,
   0ba6(0, 0x50)), DS:1bca = 1 and the timer interrupt (0001:284c, every tick) sets its pitch from the
   distance d = |ad5c - b866| between the car and its stop: min(d * (d >> 1), 0x4e20) >> 1 (16-bit),
@@ -334,6 +339,8 @@
     (k >> 1) + 7, gantries (drag) at slice k + 5, Mulholland hillsides, bridges (5404 with
     (seg - k, k < 4)) and guard rail; then the opponent; 5a2c draws the frame's sides (x 0xf0 / 0x13f
     colour 2, 0xf1 / 0x13e colour 4).
+  - The side mirror on the door: 5a2c then copies 0x20 x 0x15 of the mirror from (0xf8, 0x16) to
+    (8, 0x67) on the dashboard's page (0x64 + 3; EGA its own buffer 9bc2 at row 3), every frame.
   - The starter (a85c, a92a in the Aqueduct) once she has left the window (a7ac clear) at segment
     9e6a (a746 keeps it at min(you + 1, him) while she's there): pictures DS:9a2a (a5aa: 2000, 2022,
     2057, 2058; Aqueduct 2078..2081) by slice (k - 1 < 3 ? / 2 : - 1, at most 3, none at 6), her

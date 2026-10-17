@@ -977,14 +977,18 @@ static void walls(const int *xs, const int *ys, const int *y19s, int i, int left
         if (left) for (int y = p6; y < p3 - 1; y++) hline(CLIP_X0, p1, y);
         else for (int y = p5; y < p4 - 1; y++) hline(p2, CLIP_X1, y);
     }
-    if ((u & 4) && !(near & 4)) {                      /* the upper storey's near end */
+    /* The upper storey's near end. On the nearest slice the sidewalk edge at distance 0 (07e4's
+     * first entry, measured from the car) can lie outside the next one, and the end's span turns
+     * round: the rebuild's line would fill the whole row (grey boxes over the sky), so it is left
+     * out then, as the original evidently does. */
+    if ((u & 4) && !(near & 4)) {
         colour = 2;
         if (left) {
             int y0 = full ? p6 * 2 - p3 : p6 - ((p3 - p6) >> 1);
-            for (int y = y0; y < p6; y++) hline(p1 * 2 - p2, p1 - 1, y);
+            if (p1 * 2 - p2 <= p1 - 1) for (int y = y0; y < p6; y++) hline(p1 * 2 - p2, p1 - 1, y);
         } else {
             int y0 = full ? p5 * 2 - p4 : p5 - ((p4 - p5) >> 1);
-            for (int y = y0; y < p5; y++) hline(p2 + 1, p2 * 2 - p1, y);
+            if (p2 + 1 <= p2 * 2 - p1) for (int y = y0; y < p5; y++) hline(p2 + 1, p2 * 2 - p1, y);
         }
     }
 }

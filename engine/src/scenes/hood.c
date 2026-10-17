@@ -208,7 +208,12 @@ static void auto_remove(Game *g, Car *c, int bolt)
     }
 }
 
-static void unhide(Game *g, int bits) { (void)g; hidden &= ~(unsigned)bits; }
+static void unhide(Game *g, int bits)
+{
+    hidden &= ~(unsigned)bits;
+    Car *c = player_car(&g->player);
+    if (c) place_hotspots(c);           /* the wires come back with the engine */
+}
 
 static void bolt_out_done(Game *g, int b)
 {
@@ -289,7 +294,10 @@ static void install(Game *g, Car *c, int spare)
     int pic = pic_for(c, layer, pi->grade);
     const Image *im = game_picture(g, pic);
     int x, y;
+    PartInst keep = *layer_part(c, layer);
+    *layer_part(c, layer) = part;                                    /* where the new part sits */
     layer_pos(c, layer, &x, &y);
+    *layer_part(c, layer) = keep;
     if (im) {
         AnimMove m = { pic, 0, 0, 0, 0, -1, x + 24 - (pic == SUPERCHARGER_PIC), 4 - im->h,
                        y - im->h - (fits ? 0 : 0x14), BAY_CLIP_TOP, BAY_CLIP_BOTTOM, SFX_HUM_PART, SFX_CLUNK,

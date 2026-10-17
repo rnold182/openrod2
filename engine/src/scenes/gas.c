@@ -24,6 +24,7 @@
 #define CAP        0x457        /* 1111: the tank cap */
 #define CAR_BOTTOM 0xb9
 #define CUT_ROWS   5            /* DS:1bde[3] */
+#define BAND       25           /* DS:1bd0[3] */
 #define FULL       0xb9
 #define DRIVE_SPEED 160.0
 #define POLL       7            /* ticks a 1d02(7) waits */
@@ -266,12 +267,15 @@ static void draw_car(Game *g, int x, double moved)
     Car *c = player_car(&g->player);
     if (!c) return;
     game_set_paint(g, c->colour);
-    static uint8_t keep[CUT_ROWS * SCREEN_W];
-    uint8_t *below = &g->video.fb[(CAR_BOTTOM - CUT_ROWS + 1) * SCREEN_W];
+    /* 2a21:80ec: the car's lowest BAND rows above the cut (DS:1bd0[3]) only cover the black under
+     * it, so the pumps stand in front; its last CUT_ROWS rows aren't drawn at all. */
+    static uint8_t keep[(CUT_ROWS + BAND) * SCREEN_W];
+    uint8_t *below = &g->video.fb[(CAR_BOTTOM - CUT_ROWS - BAND + 1) * SCREEN_W];
     memcpy(keep, below, sizeof keep);
     int tires = c->tires.part >= 0 ? g_parts[c->tires.part].grade : -1;
     car_draw_ex(&g->video, g, c->model, c->body, blower_of(c), tires, ((int)moved / 6) & 3, x, CAR_BOTTOM);
-    memcpy(below, keep, sizeof keep);
+    for (int k = 0; k < BAND * SCREEN_W; k++) if (keep[k]) below[k] = keep[k];
+    memcpy(below + BAND * SCREEN_W, keep + BAND * SCREEN_W, CUT_ROWS * SCREEN_W);
 }
 
 /* A piece of 1000: entries (x, w) 0 (0, 8), 1 (8, 8), 2 (24, 16), 3 (40, 8) the nozzles on hooks
