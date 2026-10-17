@@ -347,6 +347,7 @@ static void update(Game *g)
     } else poll_start = SDL_GetTicks();
     const Widget *h = dlg.hover >= 0 ? &dlg.w[dlg.hover] : NULL;
     game_draw_status_bar(g, h && (h->flags & WF_ENABLED) && h->text && h->text[0] ? h->text : NULL);
+    if (phase == PUMPS) dialog_draw(v, &dlg);                         /* the hover marks (ui_highlight) */
 }
 
 int gas_shows_nozzle(void) { return hand == 2; }
