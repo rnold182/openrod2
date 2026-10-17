@@ -198,7 +198,7 @@
   turning frames each), time +0x444. Movers: 9d38(x, bottom, sprites, ...) + a0d4(m, 0, steps, dx, dy).
 - b9bc: the jack (DS:79e6: 1021, 1020, 1022) slides from bottom 0xb9 up to 0x99 at x 0x90 (32 steps,
   18e2(3) each, sound vector 6 = voice 5 vol 0x4a note 0x1c), drawn into the background behind the
-  car; the car (bottom 0x9e) goes up 7 steps while the jack pumps (frames 1, 2, 1, 0..., vector 7 =
+  car (the rebuild draws it in front, the user's call); the car (bottom 0x9e) goes up 7 steps while the jack pumps (frames 1, 2, 1, 0..., vector 7 =
   voice 3 "turn1" 0x7f note 0x0e every pump, the mover held back every other pump); b358 for the
   wheel at DS:9bf4[model] +0, then +1; the car comes down (9 steps from bottom 0x9a in the original)
   and the jack slides back.

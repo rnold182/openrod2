@@ -417,7 +417,7 @@ static int tires_anim_lift(void)
     return 0;
 }
 
-/* The jack, behind the car. */
+/* The jack. b9bc puts it into the background behind the car; the rebuild draws it in front. */
 static void tires_anim_draw_jack(Game *g)
 {
     static const int pic[3] = { 1021, 1020, 1022 };
@@ -520,10 +520,9 @@ void garage_draw_scene(Game *g, int cx, int cy)
     int moved = cx != 0x50 || cy != 0xac;
     if (moved) game_draw_picture(g, 1198, cx, cy);
     if (ta) { tires_anim_step(g); }
-    if (ta) tires_anim_draw_jack(g);
-    else game_draw_picture(g, 1020, 0x90, 0xa3);
+    if (!ta) game_draw_picture(g, 1020, 0x90, 0xa3);
     if (!moved) game_draw_picture(g, 1198, cx, cy);
-    if (ta && car) tires_anim_draw_car(g, car);
+    if (ta && car) { tires_anim_draw_car(g, car); tires_anim_draw_jack(g); }   /* the jack in front (user's call) */
     else if (drive) draw_drive(g);
     else if (car) {
         const Image *body = game_picture(g, g_models[car->model].picture);
@@ -542,7 +541,7 @@ static void update(Game *g)
     garage_draw_background(g);
     if (modal_kind == MODAL_PAINT) g->video.palette[12] = colour_paint_reg(paint_colour);   /* the paint gun shows it */
     game_draw_status_bar(g, deals_active() ? deals_hover_text() : NULL);
-    dialog_draw(&g->video, &dlg);
+    if (!ta) dialog_draw(&g->video, &dlg);                           /* no hover marks while the jack works */
     if (modal_kind == MODAL_INFO) draw_car_info(g);
     else if (modal_kind == MODAL_CALENDAR) draw_calendar(g);
     else if (modal_kind) dialog_draw(&g->video, &modal);
