@@ -1673,6 +1673,11 @@ static void update(Game *g)
         }
     }
     if (state < R_CRASH) engine_sound_update();
+    if (police == 3 && state < R_CRASH) {                              /* 0001:2827: the siren warbles */
+        static int up = -1;
+        int phase = (int)(SDL_GetTicks() * TIMER_HZ / 1000.0) % 0x29, u = phase >= 0x14;
+        if (u != up) { sound_voice_bend(2, u ? 0x3fff : 0x2000); up = u; }
+    }
 
     Video *v = &g->video;
     game_set_palette(g, PAL_INCAR);
