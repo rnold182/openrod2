@@ -1,6 +1,12 @@
 #include "listbox.h"
 
-#define ROWS 10
+/* The list's rows: its W_ITEM widgets (dialog 16 has 9, the others 10). */
+static int rows(const ListBox *lb)
+{
+    int n = 0;
+    for (int i = 0; i < lb->dlg.count; i++) if (lb->dlg.w[i].type == W_ITEM && lb->dlg.w[i].id >= 1) n++;
+    return n ? n : 10;
+}
 
 void listbox_open(ListBox *lb, int dialog)
 {
@@ -16,16 +22,16 @@ static int choose(ListBox *lb, int i)
     int id = w->id;
     if (w->type == W_ITEM && id >= 1) {
         if (lb->top + id - 1 < lb->count) lb->sel = lb->top + id - 1;
-    } else if (id == -7) {
-        if (lb->top + ROWS < lb->count) lb->top++;
-    } else if (id == -10) {
+    } else if (id == -7) {                             /* 2a21:4ebc: the up arrow, one back */
         if (lb->top > 0) lb->top--;
+    } else if (id == -10) {                            /* the down arrow, one on */
+        if (lb->top + 1 < lb->count) lb->top++;
     } else if (id == -9) {
-        lb->top += ROWS;
+        lb->top += rows(lb);
         if (lb->top > lb->count - 1) lb->top = lb->count - 1;
         if (lb->top < 0) lb->top = 0;
     } else if (id == -8) {
-        lb->top -= ROWS;
+        lb->top -= rows(lb);
         if (lb->top < 0) lb->top = 0;
     } else if (id < 0) {
         lb->active = 0;

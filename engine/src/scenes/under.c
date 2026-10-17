@@ -10,6 +10,10 @@
 static Dialog dlg;
 static PartList list;
 static int slot;                /* PT_EXHAUST, PT_MUFFLER or PT_DIFF being changed */
+/* 2925:2b26: first you slide under the car on the creeper, from (0x50, 0xac) 2 pixels right
+ * and 1 up every 2 retraces until x reaches 0x80 (y stops at 0x8f). */
+static int slide_x, slide_y;
+static Uint64 slide_start;
 
 static PartInst *slot_part(Car *c, int type)
 {
@@ -21,6 +25,9 @@ static void enter(Game *g)
     (void)g;
     dialog_load(&dlg, 34);
     list.active = 0;
+    slide_x = 0x50;
+    slide_y = 0xac;
+    slide_start = SDL_GetTicks();
 }
 
 static void choose(Game *g, int i)
@@ -62,12 +69,14 @@ static void picked(Game *g, int r)
 static void key(Game *g, SDL_Scancode sc, SDL_Keycode k)
 {
     (void)k;
+    if (slide_x < 0x80) return;
     if (list.active) picked(g, partlist_key(&list, sc));
     else choose(g, dialog_key(&dlg, sc));
 }
 
 static void click(Game *g, int x, int y)
 {
+    if (slide_x < 0x80) return;
     if (list.active) picked(g, partlist_click(&list, x, y));
     else choose(g, dialog_click(&dlg, x, y));
 }
@@ -83,6 +92,15 @@ static void mouse_move(Game *g, int x, int y)
 static void update(Game *g)
 {
     Car *c = player_car(&g->player);
+    if (slide_x < 0x80) {
+        int steps = (int)((SDL_GetTicks() - slide_start) * 70 / 2000);   /* 18e2(2) a step */
+        slide_x = SDL_min(0x50 + 2 * steps, 0x80);    /* drawn up to x 0x7e, then the underside */
+        slide_y = SDL_max(0xac - steps, 0x8f);
+        if (slide_x >= 0x80) return;
+        garage_draw_scene(g, slide_x, slide_y);
+        game_draw_status_bar(g, NULL);
+        return;
+    }
     garage_draw_background(g);
     game_draw_picture(g, UNDERSIDE, 0x18, 0x15);
     static const struct { int type; uint16_t table; int x, y; } spots[3] = {

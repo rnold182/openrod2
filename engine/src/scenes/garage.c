@@ -35,12 +35,64 @@ static void open_modal(int kind, int dialog)
     dialog_load(&modal, dialog);
 }
 
+/* 2a21:89fa in the garage (1001:6912): coming back from the street, a race or a loaded game your
+ * car drives in from the left to its place (mode 4); switching cars, the old one drives out to the
+ * right first (mode 6). From the hood, gearbox or underside it is simply there (mode 3). Wheels turn
+ * and the motor runs as at Burger's (street.c). */
+#define DRIVE_SPEED 160.0                       /* pixels per second, as at Burger's */
+static int drive;                               /* 0, 4 driving in, 6 driving out */
+static Car out_car;                             /* the car driving out */
+static Uint64 drive_start;
+
+static int blower_of(const Car *c) { return c->intake.part >= 0 && g_parts[c->intake.part].grade == 8; }
+
+static void drive_in(Game *g)
+{
+    Car *c = player_car(&g->player);
+    drive = c ? 4 : 0;
+    drive_start = SDL_GetTicks();
+    if (c) drive_motor_start(g, blower_of(c));
+}
+
+void garage_switch_car(Game *g, int old_car)
+{
+    if (old_car < 0 || old_car >= g->player.car_count) { drive_in(g); return; }
+    out_car = g->player.cars[old_car];
+    drive = 6;
+    drive_start = SDL_GetTicks();
+    drive_motor_start(g, blower_of(&out_car));
+}
+
 static void enter(Game *g)
 {
-    (void)g;
     dialog_load(&dlg, 0);
     modal_kind = MODAL_NONE;
     tires.active = 0;
+    drive = 0;
+    const Scene *from = g->prev_scene;
+    if (from == &scene_street || from == &scene_race || from == &scene_king || from == &scene_files || from == &scene_license)
+        drive_in(g);
+}
+
+/* Draws the moving car; returns 1 while a drive is on. */
+static int draw_drive(Game *g)
+{
+    if (!drive) return 0;
+    const Car *c = drive == 6 ? &out_car : player_car(&g->player);
+    if (!c) { drive = 0; return 0; }
+    const Image *body = game_picture(g, g_models[c->model].picture);
+    int w = body ? body->w : 0, park = car_garage_x(w), x;
+    double moved = (SDL_GetTicks() - drive_start) * DRIVE_SPEED / 1000.0;
+    if (drive == 4) { x = (int)moved - w; if (x >= park) x = park; drive_motor_update(park - x); }
+    else { x = park + (int)moved; drive_motor_update(x - park); }
+    int tires = c->tires.part >= 0 ? g_parts[c->tires.part].grade : -1;
+    car_draw_ex(&g->video, g, c->model, c->body, blower_of(c), tires, ((int)moved / 6) & 3, x, 0x9e);
+    if ((drive == 4 && x >= park) || (drive == 6 && x >= 320)) {
+        drive_motor_stop();
+        if (drive == 6) drive_in(g);
+        else drive = 0;
+    }
+    return 1;
 }
 
 /* 1001:67b8: hood, transmission, roof and bumper hotspots follow the car. */
@@ -268,6 +320,7 @@ static void tires_picked(Game *g, int r)
 static void key(Game *g, SDL_Scancode sc, SDL_Keycode k)
 {
     (void)k;
+    if (drive) return;
     if (deals_active()) deals_key(g, sc, k);
     else if (tires.active) tires_picked(g, partlist_key(&tires, sc));
     else if (modal_kind) choose_modal(g, dialog_key(&modal, sc));
@@ -285,13 +338,18 @@ static void mouse_move(Game *g, int x, int y)
 
 static void click(Game *g, int x, int y)
 {
+    if (drive) return;
     if (deals_active()) deals_click(g, x, y);
     else if (tires.active) tires_picked(g, partlist_click(&tires, x, y));
     else if (modal_kind) choose_modal(g, dialog_click(&modal, x, y));
     else choose(g, dialog_click(&dlg, x, y));
 }
 
-void garage_draw_background(Game *g)
+void garage_draw_background(Game *g) { garage_draw_scene(g, 0x50, 0xac); }
+
+/* The garage with the creeper (1198) at (cx, cy); away from its place by the door it is under
+ * the car, drawn before the jack (1020) and the car (2925:2b26 puts them over it). */
+void garage_draw_scene(Game *g, int cx, int cy)
 {
     game_set_palette(g, PAL_SCREENS);
     Car *car = player_car(&g->player);
@@ -299,9 +357,12 @@ void garage_draw_background(Game *g)
     g->video.palette[12] = car ? colour_paint_reg(car->colour) : 5;
     video_clear(&g->video, 0);
     game_draw_picture(g, 1018, 0, 0);
+    int moved = cx != 0x50 || cy != 0xac;
+    if (moved) game_draw_picture(g, 1198, cx, cy);
     game_draw_picture(g, 1020, 0x90, 0xa3);
-    game_draw_picture(g, 1198, 0x50, 0xac);
-    if (car) {
+    if (!moved) game_draw_picture(g, 1198, cx, cy);
+    if (drive) draw_drive(g);
+    else if (car) {
         const Image *body = game_picture(g, g_models[car->model].picture);
         if (body) {
             int x = car_draw(&g->video, g, car, car->model, car_garage_x(body->w), 0x9e);

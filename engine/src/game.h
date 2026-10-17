@@ -33,6 +33,7 @@ struct Game {
     Lib          lib[3];
     const Scene *scene;
     const Scene *next_scene;
+    const Scene *prev_scene;            /* the scene before this one (how the garage was reached) */
     int          quit;
     char         data_dir[1024];
     Player       player;
@@ -60,6 +61,13 @@ extern const Scene scene_intro, scene_license, scene_garage, scene_newspaper, sc
 
 /* Garage picture with the current car, used as the backdrop by screens that open over it. */
 void garage_draw_background(Game *g);
+void garage_draw_scene(Game *g, int creeper_x, int creeper_y);
+/* Switching cars: the one you had drives out (2a21:89fa mode 6), the new one in (mode 4). */
+void garage_switch_car(Game *g, int old_car);
+/* 2a21:89fa's motor while a car drives in or out (street.c): start, its distance from its stop, stop. */
+void drive_motor_start(Game *g, int blower);
+void drive_motor_update(int distance);
+void drive_motor_stop(void);
 /* The engine bay of any car over the current picture, as "Pop the hood" shows it (no panel). */
 void hood_draw_car(Game *g, Car *c);
 void street_summon(Game *g, int rival);   /* cheat: call a rival to Burger's */

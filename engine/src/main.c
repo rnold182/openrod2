@@ -201,6 +201,7 @@ int main(int argc, char **argv)
         }
         run_script(&g, SDL_GetTicks());
         if (g.next_scene) {
+            g.prev_scene = g.scene;
             g.scene = g.next_scene;
             g.next_scene = NULL;
             g.scene->enter(&g);

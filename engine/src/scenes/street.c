@@ -9,6 +9,7 @@
 #include "../data.h"
 #include "../game.h"
 #include "../rivals.h"
+#include "../sound.h"
 #include "../ui/listbox.h"
 #include "race.h"
 
@@ -42,6 +43,48 @@ static int race_pending = -1, race_stake;   /* the race starts once his answer h
 
 static void wait_for(double ticks) { wait_start = SDL_GetTicks(); wait_ticks = ticks; }
 
+/* 2a21:89fa's sound while a car drives in or out: if your own car could run (7a44) the motor
+ * (1001:20a0: voice 3 "motor"), its pitch from the timer interrupt (0001:284c) falling as the car
+ * nears its spot - min(d * (d / 2), 0x4e20) / 2 for d pixels away - full volume with a blower
+ * (bit 0x20 of the car's flags, 1001:4804 / the rival's +0xd), 0x50 without; otherwise the hum of
+ * sound slot 10. 1001:2176 stops it. */
+static int motor, muffled;              /* DS:a808 (1 motor, 2 hum), b8d4 */
+
+void drive_motor_start(Game *g, int blower)
+{
+    muffled = !blower;
+    Car *c = player_car(&g->player);
+    if (c && car_runnable(c, 1)) {
+        sound_voice_timbre(3, "motor", 0x40);           /* 3c57:0b2c(1) */
+        sound_pitch_range(6);
+        sound_voice_bend(3, 0);
+        sound_voice_note_off(3);
+        sound_voice_note_on(3, 0x18);
+        sound_voice_volume(3, 0x50);                    /* 0ba6(0, 0x50) */
+        motor = 1;
+    } else {
+        sound_sfx(SFX_HUM_PART);
+        motor = 2;
+    }
+}
+
+void drive_motor_update(int d)
+{
+    if (motor != 1) return;
+    unsigned v = (unsigned)SDL_abs(d);
+    v = (uint16_t)((v >> 1) * v);
+    if (v > 0x4e20) v = 0x4e20;
+    sound_voice_bend(3, (int)(v >> 1));
+    sound_voice_volume(3, muffled ? 0x50 : 0x7f);
+}
+
+void drive_motor_stop(void)
+{
+    if (motor == 1) { sound_voice_volume(3, 0); sound_voice_note_off(3); }
+    else if (motor == 2) sound_sfx(SFX_HUM_OFF);
+    motor = 0;
+}
+
 static int timed_out(void) { return game_ticks_since(wait_start) >= wait_ticks; }
 
 /* 953c: the status line names the driver and the car ("Bubba  '57 Chevy"). */
@@ -62,15 +105,19 @@ static void arrive(Game *g, int r)
     park_x = ((320 - car_w) / 2 + 4) & ~7;
     state = S_ARRIVING;
     move_start = SDL_GetTicks();
+    drive_motor_start(g, rival_get(&g->player, r, 0xd) & 0x20);
     looked = 0;
     set_status(&g->player);
 }
+
+static Game *G;
 
 static void leave(void)
 {
     if (rival < 0) return;
     state = S_LEAVING;
     move_start = SDL_GetTicks();
+    if (G) drive_motor_start(G, rival_get(&G->player, rival, 0xd) & 0x20);
 }
 
 static void place_hotspots(Game *g)
@@ -92,6 +139,8 @@ static void place_hotspots(Game *g)
 
 static void enter(Game *g)
 {
+    G = g;
+    motor = 0;
     game_set_palette(g, PAL_SCREENS);
     dialog_load(&dlg, 20);
     state = S_EMPTY;
@@ -209,7 +258,7 @@ static void choose(Game *g, int i)
 {
     if (i < 0) return;
     int id = dlg.w[i].id;
-    if (id == 1) { game_set_scene(g, &scene_garage); return; }   /* Back to the garage */
+    if (id == 1) { drive_motor_stop(); game_set_scene(g, &scene_garage); return; }   /* Back to the garage */
     if (state == S_ARRIVING || state == S_LEAVING) return;
     if (id == 4) open_looking(g);
     else if (id == 3 && rival >= 0) {
@@ -266,11 +315,15 @@ static void step(Game *g)
         static const int amount[6] = { 0, 10, 50, 25, 150, 0 };
         int t = race_pending;
         race_pending = -1;
+        drive_motor_stop();
         race_start(g, rival, t, race_stake, amount[race_stake]);
         return;
     }
     double moved = (SDL_GetTicks() - move_start) * DRIVE_SPEED / 1000.0;
+    if (state == S_ARRIVING) drive_motor_update(park_x - (int)(moved - car_w));
+    if (state == S_LEAVING) drive_motor_update((int)moved);
     if (state == S_ARRIVING && moved >= park_x + car_w) {
+        drive_motor_stop();
         state = S_PARKED;
         wait_for(WAIT);
         place_hotspots(g);
@@ -278,6 +331,7 @@ static void step(Game *g)
             for (int i = 0; i < dlg.count; i++)
                 SDL_Log("street hotspot %d: %d,%d - %d,%d", dlg.w[i].id, dlg.w[i].x1, dlg.w[i].y1, dlg.w[i].x2, dlg.w[i].y2);
     } else if (state == S_LEAVING && park_x + moved >= 320) {
+        drive_motor_stop();
         state = S_EMPTY;
         rival = -1;
         status[0] = 0;

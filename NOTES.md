@@ -85,6 +85,24 @@
   gear when it changes (2a21:1f5e: DS:1e1e "0".."4", "N", "D" for a124 + 4) at the next 8 px after
   the label; nothing before the race starts. Checked against the original (DOSBox screenshots).
 
+## Cars driving in and out (2a21:89fa)
+- Modes: 1 arrive / 2 leave at Burger's (1001:953c), 4 your car drives into the garage from the left,
+  6 a car drives out to the right (the old one when switching cars, 1001:6912 param 3), 3 / 7 / 8
+  just draw it. The garage (6912) is entered with 1 (after the street, a race, a load: drive in),
+  2 (after hood / gearbox / underside: drawn), 0 (no redraw) or 3 (switch: out, then in). Start x
+  -w (in) or the spot (out), distance w + spot (in), 0x140 - spot or w + spot (out).
+- The sound (89fa with 7a44(your car, 1)): your car could run: 1001:20a0 starts the motor (3c57:0b2c,
+  0ba6(0, 0x50)), DS:1bca = 1 and the timer interrupt (0001:284c, every tick) sets its pitch from the
+  distance d = |ad5c - b866| between the car and its stop: min(d * (d >> 1), 0x4e20) >> 1 (16-bit),
+  volume 0x50, or full when the car has a blower (bit 0x20 of 1001:4804 / the rival's +0xd -> b8d4);
+  2176 stops it. Your car can't run: sound slot 10 (the hum) instead, off afterwards.
+- The siren (sound slot 11) warbles in the same interrupt: DS:2004 counts 0..0x28 per tick, bend
+  0x2000 at 0, 0x3fff at 0x14 (2c57:104e).
+- Under the car (2925:2b26 before 2e60): the creeper 1198 slides from (0x50, 0xac) 2 px right and 1 up
+  per step (18e2(2)) while x < 0x80, with the car and the jack 1020 (at 0x90, 0xa3) drawn over it.
+- List boxes (2a21:4ebc): id -7 (the up arrow at the top) one back, -10 (down) one on while top + 1 <
+  count, -8 / -9 a page (the list's rows).
+
 ## Mouse cursor (2a21:2b44 / 2d90)
 - Software cursor drawn by the game from mouse mickeys (int 33h fn 0/3/0Bh only), clamped to 0..314 x 0..194.
 - LIB1 picture 2 = three 16x16 cursors stacked: 0 wrench (garage family, 1001:6912 sets it),

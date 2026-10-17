@@ -242,8 +242,10 @@ static void cars_choice(Game *g, int id)
     Player *p = &g->player;
     if (id == -3) { finish(g); return; }                    /* Forget it */
     if (id == -1) {                                         /* Switch it */
+        int old = p->current;
         p->current = car_idx[cars.sel];
         finish(g);
+        if (old != p->current) garage_switch_car(g, old);
     } else if (id == -2) {
         start_sale(g);                                      /* Sell it */
     }
